@@ -62,8 +62,14 @@ macOS привязывает разрешения к подписи, а ad-hoc �
 ./scripts/build_app.sh                    # build/Screenshooter.app (Apple Silicon + Intel)
 ARCHS=arm64 ./scripts/build_app.sh        # быстрее, только для этого Mac
 VERSION=1.0.0 ./scripts/make_dmg.sh       # dist/Screenshooter-1.0.0.dmg
+VERSION=1.1.0 NOTES=~/notes.md ./scripts/release.sh   # тег, пуш и релиз на GitHub с DMG
 swift test                                # тесты распознавания
 ```
+
+DMG собирается в `build/release` с ad-hoc подписью, поэтому локальная копия в `build/` сохраняет свою подпись
+и выданные ей разрешения. `release.sh` пушит через deploy key, а релиз создаёт через fine-grained токен
+с правом Contents: Read and write на этот репозиторий. Токен хранится в Связке ключей (аккаунт `tihomirov-nick`,
+сервис `github-screenshooter-token`).
 
 Нужен Xcode (Swift 6, SDK macOS 26 или новее). Приложение работает на macOS 14 и новее. Английские строки
 собираются из `scripts/l10n/en.json`: ключи в коде пишутся по-русски через `L("…")`, и сборка падает, если

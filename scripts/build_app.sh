@@ -3,6 +3,7 @@
 #   VERSION=1.0.0 ./scripts/build_app.sh
 #   ARCHS="arm64" ./scripts/build_app.sh          faster, for this Mac only
 #   SIGN_IDENTITY=- ./scripts/build_app.sh        ad-hoc signature
+#   OUT_DIR=build/release ./scripts/build_app.sh  another place for the bundle (make_dmg.sh uses it)
 #
 # By default the app is signed with the first "Developer ID Application" or "Apple Development" identity
 # in the keychain: macOS ties the screen recording and accessibility permissions to the signature, and
@@ -22,7 +23,7 @@ if [ -z "${SIGN_IDENTITY:-}" ]; then
         | grep -E '"(Developer ID Application|Apple Development):' | head -1 | sed -E 's/.*"(.*)".*/\1/')"
     SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 fi
-APP="$ROOT/build/$APP_NAME.app"
+APP="${OUT_DIR:-$ROOT/build}/$APP_NAME.app"
 
 # 1. Icon
 [ -f Resources/AppIcon.icns ] || swift scripts/make_icon.swift
