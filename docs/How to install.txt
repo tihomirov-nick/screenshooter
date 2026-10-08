@@ -1,0 +1,54 @@
+SCREENSHOOTER
+=============
+
+Smart screenshots: point at something and the app finds the window, panel,
+chat, message or page element by itself and highlights it. Click, and the
+screenshot is ready. Screenshots are saved to the Desktop and land on a shelf
+in the notch, from where you can drag them into any app.
+
+INSTALLING
+1. Drag the Screenshooter icon onto the Applications folder next to it.
+2. Open the Applications folder in Finder and launch Screenshooter.
+   The app has no main window: it lives in the menu bar (a viewfinder icon)
+   and in the notch.
+
+IF macOS WON'T OPEN THE APP
+The app isn't notarized by Apple, so macOS may show a warning the first time.
+You need to allow it only once.
+
+  • On macOS 15 and later, close the warning with "Done", open System Settings
+    → Privacy & Security, scroll down, click "Open Anyway" next to
+    Screenshooter and confirm.
+
+  • On macOS 14, right-click Screenshooter in Finder, choose "Open" and click
+    "Open" again in the warning.
+
+  • If that doesn't help, open Terminal and run:
+        xattr -dr com.apple.quarantine /Applications/Screenshooter.app
+
+FIRST LAUNCH
+In the welcome window, allow:
+  • "Screen Recording" — needed for any screenshot. macOS may ask to restart
+    the app afterwards.
+  • "Accessibility" — so the app recognizes buttons, messages, lists and page
+    elements under the pointer.
+  • access to the Desktop folder — screenshots are saved there.
+
+TAKING SCREENSHOTS
+  ⇧⌘2   smart capture: point at what you need and click
+  ⇧⌘1   the whole screen at once
+While capturing:
+  ↑ ↓ or the scroll wheel   a larger or smaller area (message → chat →
+                            window → screen)
+  drag                      select an area by hand
+  Space                     the whole window
+  Esc                       cancel
+
+THE SHELF IN THE NOTCH
+Point at the notch at the top of the screen to open the shelf. Drag a
+screenshot into a messenger or Finder, copy it, open it in the editor
+(arrows, boxes, text, highlighter, pixelation, crop) or remove it. Drop an
+image onto the notch to put it on the shelf.
+
+Shortcuts, the screenshots folder and everything else can be changed in the
+settings: the menu bar icon → "Settings…".
