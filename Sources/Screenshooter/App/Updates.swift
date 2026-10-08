@@ -12,7 +12,7 @@ extension Updater.Failure {
     var message: String {
         switch self {
         case .offline: return L("Нет связи с GitHub")
-        case .rateLimited: return L("GitHub просит подождать, попробуйте позже")
+        case .rateLimited: return L("GitHub просит подождать. Попробуйте позже")
         case .noInstaller: return L("У новой версии нет установщика")
         case .download: return L("Загрузка прервалась")
         case .damaged: return L("Скачанный файл повреждён")

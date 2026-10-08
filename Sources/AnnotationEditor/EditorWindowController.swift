@@ -573,7 +573,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         case .editorDrag:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = L("Перетащить")
-            item.toolTip = L("Перетащите снимок в другую программу или в Finder")
+            item.toolTip = L("Перетащите снимок в другое приложение или в Finder")
             item.view = dragView
             return item
 

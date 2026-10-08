@@ -26,7 +26,7 @@ struct ShortcutRecorder: View {
                     .frame(minWidth: 128)
             }
             .buttonStyle(.bordered)
-            .help(L("Нажмите и введите новое сочетание. Esc — отмена, ⌫ — удалить."))
+            .help(L("Нажмите и введите новое сочетание. Esc — отмена, ⌫ — удаление."))
 
             if shortcut != nil, !recording {
                 Button { set(nil) } label: {

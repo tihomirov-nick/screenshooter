@@ -21,7 +21,7 @@ enum PreviewRenderer {
         state.title = L("Блок")
         state.detail = "420 × 64"
         state.level = "2/6"
-        state.hint = L("Клик — снимок  ·  Перетащите — своя область  ·  ↑ ↓ или колесо — меньше/больше  ·  Пробел — окно  ·  Esc — отмена")
+        state.hint = L("Клик — снимок  ·  Перетаскивание — своя область  ·  ↑ ↓ или колесо — меньше/больше  ·  Пробел — окно  ·  Esc — отмена")
         view.update(state, animated: false)
         write(render(view.layer!, size: view.bounds.size, scale: 2), to: folder.appendingPathComponent("overlay-region.png"))
 

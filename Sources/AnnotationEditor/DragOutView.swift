@@ -12,7 +12,7 @@ final class DragOutView: NSView, NSDraggingSource {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        toolTip = L("Перетащите снимок в другую программу или в Finder")
+        toolTip = L("Перетащите снимок в другое приложение или в Finder")
         setAccessibilityLabel(L("Перетащить снимок"))
         setAccessibilityRole(.button)
     }
