@@ -8,3 +8,6 @@ xcuserdata/
 
 # Built from Resources/AppIcon.icon by actool into the app
 Resources/AppIcon.icns
+
+# Promo materials (images, video, post), kept out of git
+promo/
