@@ -72,7 +72,7 @@ private struct GeneralSettings: View {
     @AppStorage(PrefKey.saveFolder) private var saveFolderPath = ""
     @AppStorage(PrefKey.imageFormat) private var format = ImageFormat.png.rawValue
     @AppStorage(PrefKey.copyToClipboard) private var copyToClipboard = true
-    @AppStorage(PrefKey.playSound) private var playSound = true
+    @AppStorage(PrefKey.soundEffects) private var soundEffects = true
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var language = Localization.selected
 
@@ -104,8 +104,11 @@ private struct GeneralSettings: View {
 
             Section {
                 Toggle(L("Копировать снимок в буфер обмена"), isOn: $copyToClipboard)
-                Toggle(L("Звук затвора"), isOn: $playSound)
+                Toggle(L("Звуковые эффекты"), isOn: $soundEffects)
+                    .help(L("Затвор, распознанный текст, добавление, копирование и удаление на полке, ошибки. Громкость та же, что у звуков предупреждений в Системных настройках → Звук; при выключенных там звуковых эффектах интерфейса звуков нет."))
             }
+
+            UpdateSection()
 
             Section {
                 Toggle(L("Запускать при входе в систему"), isOn: $launchAtLogin)
@@ -152,6 +155,72 @@ private struct GeneralSettings: View {
         if panel.runModal() == .OK, let url = panel.url {
             Prefs.setSaveFolder(url)
             saveFolderPath = url.path
+        }
+    }
+}
+
+/// The version, automatic checks and a check on request; the island offers what is found.
+private struct UpdateSection: View {
+    @ObservedObject private var updater = Updater.shared
+
+    var body: some View {
+        Section {
+            Toggle(L("Проверять обновления"), isOn: Binding(get: { updater.automaticChecks },
+                                                            set: { updater.automaticChecks = $0 }))
+                .help(L("Раз в сутки Screenshooter смотрит, нет ли новой версии на GitHub, и предлагает её в островке."))
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L("Версия %@", updater.currentVersion))
+                    if let status {
+                        Text(status)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                action
+                Button(L("Проверить сейчас")) { updater.check(userInitiated: true) }
+                    .disabled(busy)
+            }
+        } footer: {
+            if updater.isDevelopmentBuild {
+                Text(L("Эта копия собрана из исходников и сама не обновляется."))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var busy: Bool {
+        switch updater.state {
+        case .checking, .downloading, .installing: return true
+        default: return false
+        }
+    }
+
+    private var status: String? {
+        switch updater.state {
+        case .idle: return nil
+        case .checking: return L("Проверка…")
+        case .upToDate: return L("Установлена последняя версия")
+        case .available(let release): return L("Доступна версия %@", release.version)
+        case .downloading(let release, let progress):
+            return L("Загрузка версии %@: %@ %%", release.version, "\(Int((progress * 100).rounded()))")
+        case .installing(let release): return L("Установка версии %@", release.version)
+        case .failed(let failure, _): return failure.message
+        }
+    }
+
+    @ViewBuilder
+    private var action: some View {
+        switch updater.state {
+        case .available:
+            Button(L("Обновить")) { updater.install() }
+        case .downloading:
+            Button(L("Отмена")) { updater.cancel() }
+        case .failed(let failure, let release) where release != nil || failure == .noInstaller:
+            Button(failure == .cannotReplace ? L("Открыть DMG") : L("Страница релиза")) { updater.openReleasePage() }
+        default:
+            EmptyView()
         }
     }
 }
@@ -235,11 +304,14 @@ private struct IslandSettings: View {
                 }
                 .disabled(!enabled)
             } footer: {
-                Text(L("Наведите указатель на вырез вверху экрана, чтобы открыть полку. Снимки можно перетаскивать в любые приложения, копировать и открывать в редакторе; картинки можно класть на полку, перетащив их на вырез."))
+                Text(L("Наведите указатель на вырез вверху экрана, чтобы открыть полку. Снимки можно перетаскивать в любые приложения, копировать и открывать в редакторе; файлы и текст можно класть на полку, перетащив их на вырез."))
                     .foregroundStyle(.secondary)
             }
             Section {
-                Button(L("Очистить полку")) { Shelf.shared.clear() }
+                Button(L("Очистить полку")) {
+                    Shelf.shared.clear()
+                    SoundEffects.play(.removed)
+                }
             } footer: {
                 Text(L("Файлы на диске останутся."))
                     .foregroundStyle(.secondary)
@@ -307,21 +379,33 @@ private struct KeyRow: View {
 // MARK: - Permissions
 
 private struct PermissionSettings: View {
+    @State private var screen = Permissions.screenRecording
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
     var body: some View {
         Form {
             Section {
-                PermissionRows()
+                PermissionRows(place: .settings)
             } footer: {
-                Text(L("После выдачи разрешения на запись экрана macOS может попросить перезапустить приложение."))
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L("«Разрешить…» добавляет Screenshooter в список в Системных настройках, остаётся включить переключатель. Когда запись экрана включена, приложение само перезапустится, чтобы она заработала."))
+                        .foregroundStyle(.secondary)
+                    // The app relaunches by itself; the button is there if it could not.
+                    if screen && !Permissions.screenRecordingAtLaunch {
+                        Button(L("Перезапустить")) { Permissions.relaunch() }
+                    }
+                }
             }
         }
         .formStyle(.grouped)
+        .onReceive(timer) { _ in screen = Permissions.screenRecording }
     }
 }
 
 /// Live status of both permissions with buttons to grant them; shared with the welcome window.
 struct PermissionRows: View {
+    /// Where the rows are: after a relaunch for screen recording the app opens that window again.
+    let place: Permissions.Place
     @State private var screen = Permissions.screenRecording
     @State private var accessibility = Permissions.accessibility
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -331,11 +415,11 @@ struct PermissionRows: View {
             PermissionRow(granted: screen, symbol: "rectangle.dashed.badge.record",
                           title: L("Запись экрана"),
                           detail: L("Нужна, чтобы делать снимки."),
-                          action: Permissions.requestScreenRecording)
+                          action: { Permissions.request(.screenRecording, from: place) })
             PermissionRow(granted: accessibility, symbol: "accessibility",
                           title: L("Универсальный доступ"),
                           detail: L("Нужен, чтобы узнавать кнопки, сообщения и элементы страниц под указателем."),
-                          action: Permissions.requestAccessibility)
+                          action: { Permissions.request(.accessibility, from: place) })
         }
         .onReceive(timer) { _ in
             screen = Permissions.screenRecording

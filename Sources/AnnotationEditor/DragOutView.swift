@@ -37,6 +37,9 @@ final class DragOutView: NSView, NSDraggingSource {
         NSGraphicsContext.saveGraphicsState()
         path.addClip()
         if let thumbnail {
+            // The canvas colour: transparent corners and a window shadow stay off the light toolbar.
+            NSColor(white: 0.13, alpha: 1).setFill()
+            rect.fill()
             thumbnail.draw(in: rect)
         } else {
             NSColor.quaternaryLabelColor.setFill()

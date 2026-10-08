@@ -56,6 +56,19 @@ public enum AnnotationEditor {
         controller.present()
     }
 
+    /// Before the file goes away: closes its editor window and returns true, or, when the window has
+    /// unsaved changes, brings it to the front and returns false (nothing is closed). True when no editor
+    /// has the file open.
+    public static func closeUnlessModified(url: URL) -> Bool {
+        guard let controller = controllers[url.standardizedFileURL] else { return true }
+        if controller.model.isModified {
+            controller.present()
+            return false
+        }
+        controller.window?.close()
+        return true
+    }
+
     /// For the app's quit handler: true when no editor window has unsaved changes. Otherwise brings the
     /// first such window to the front with its "save changes?" sheet and returns false; the app should
     /// cancel this quit (the person quits again after answering).

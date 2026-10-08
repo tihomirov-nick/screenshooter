@@ -6,7 +6,9 @@ enum PrefKey {
     static let saveToFolder = "saveToFolder"
     static let saveFolder = "saveFolder"
     static let copyToClipboard = "copyToClipboard"
-    static let playSound = "playSound"
+    static let soundEffects = "soundEffects"
+    /// The shutter sound switch of earlier versions; its value moved to `soundEffects`.
+    static let oldShutterSound = "playSound"
     static let imageFormat = "imageFormat"
     static let liveWindowCapture = "liveWindowCapture"
     static let windowShadow = "windowShadow"
@@ -48,10 +50,17 @@ enum Prefs {
     static let defaults = UserDefaults.standard
 
     static func registerDefaults() {
+        // "Звук затвора" became "Звуковые эффекты": whoever turned the shutter off starts with all sounds off.
+        if defaults.object(forKey: PrefKey.soundEffects) == nil,
+           let shutter = defaults.object(forKey: PrefKey.oldShutterSound) as? Bool {
+            defaults.set(shutter, forKey: PrefKey.soundEffects)
+        }
+        defaults.removeObject(forKey: PrefKey.oldShutterSound)
+
         defaults.register(defaults: [
             PrefKey.saveToFolder: true,
             PrefKey.copyToClipboard: true,
-            PrefKey.playSound: true,
+            PrefKey.soundEffects: true,
             PrefKey.imageFormat: ImageFormat.png.rawValue,
             PrefKey.liveWindowCapture: true,
             PrefKey.windowShadow: false,
@@ -71,7 +80,7 @@ enum Prefs {
 
     static var saveToFolder: Bool { defaults.bool(forKey: PrefKey.saveToFolder) }
     static var copyToClipboard: Bool { defaults.bool(forKey: PrefKey.copyToClipboard) }
-    static var playSound: Bool { defaults.bool(forKey: PrefKey.playSound) }
+    static var soundEffects: Bool { defaults.bool(forKey: PrefKey.soundEffects) }
     static var liveWindowCapture: Bool { defaults.bool(forKey: PrefKey.liveWindowCapture) }
     static var windowShadow: Bool { defaults.bool(forKey: PrefKey.windowShadow) }
     static var detectElements: Bool { defaults.bool(forKey: PrefKey.detectElements) }
@@ -116,7 +125,8 @@ enum AppFolders {
         return url
     }
 
-    /// Captures kept only on the shelf (when saving to a folder is off) and files dropped onto it.
+    /// What the shelf keeps itself: captures when saving to a folder is off, dropped text, and dropped files
+    /// that would not last where they came from.
     static var shelfFiles: URL {
         let url = support.appendingPathComponent("Shelf", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

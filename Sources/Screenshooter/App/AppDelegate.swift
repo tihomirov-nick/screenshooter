@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var settingsWork: DispatchWorkItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let returning = Permissions.launched()
         Prefs.registerDefaults()
         MainMenu.install()
         WindowActivation.start()
@@ -19,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applySettings()
         registerShortcuts()
         ScreenCapturer.shared.warmUp()
+        Updates.start()
 
         let center = NotificationCenter.default
         center.addObserver(forName: .shortcutsChanged, object: nil, queue: .main) { [weak self] _ in
@@ -31,14 +33,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             MainActor.assumeIsolated { ScreenCapturer.shared.warmUp() }
         }
 
-        if !Permissions.screenRecording || !UserDefaults.standard.bool(forKey: PrefKey.onboardingShown) {
+        // Back from a relaunch made for screen recording: the window the permission was asked from, open again.
+        if returning == .settings {
+            SettingsWindow.show(.permissions)
+        } else if returning == .onboarding || !Permissions.screenRecording
+                    || !UserDefaults.standard.bool(forKey: PrefKey.onboardingShown) {
             OnboardingWindow.show()
         }
     }
 
-    /// An editor with unsaved changes asks first.
+    /// An editor with unsaved changes asks first. A capture in progress (an update relaunching the app, say) is
+    /// finished and saved before the app quits.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        AnnotationEditor.reviewUnsavedChanges() ? .terminateNow : .terminateCancel
+        guard AnnotationEditor.reviewUnsavedChanges() else { return .terminateCancel }
+        guard CaptureController.shared.isBusy else { return .terminateNow }
+        CaptureController.shared.whenIdle { NSApp.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
     }
 
     /// Opening the app again (from Finder or Spotlight) while it runs shows the settings.
@@ -114,10 +124,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Menu bar icon
 
     private func setUpStatusItem() {
+        // A square item, like FaceID's: the two icons stand level and as far apart as the others.
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        let image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Screenshooter")
-        image?.isTemplate = true
-        item.button?.image = image
+        if let button = item.button { StatusIcon.shared.attach(to: button) }
         item.button?.toolTip = "Screenshooter"
 
         let menu = NSMenu()
@@ -137,6 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         add(L("Настройки…"), #selector(showSettings))
         add(L("О программе Screenshooter"), #selector(showAbout))
+        add(L("Проверить обновления…"), #selector(checkForUpdates))
         menu.addItem(.separator())
         let quit = NSMenuItem(title: L("Выйти"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
@@ -173,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleShelf() { afterMenuCloses { IslandController.shared.toggle() } }
     @objc private func openFolder() { NSWorkspace.shared.open(Prefs.saveToFolder ? Prefs.saveFolder : AppFolders.shelfFiles) }
     @objc func showSettings() { SettingsWindow.show() }
+    @objc private func checkForUpdates() { Updates.checkNow() }
 
     @objc func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
@@ -206,43 +217,99 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 island.close()
                 SettingsWindow.show()
             },
-            clear: { shelf.clear() },
+            clear: {
+                shelf.clear()
+                SoundEffects.play(.removed)
+            },
             edit: { item in
                 island.close()
                 Self.edit(item)
             },
             open: { item in NSWorkspace.shared.open(item.url) },
             copy: { item in
-                CaptureOutput.copyFile(item.url)
-                island.notify(L("Скопировано"))
+                if Self.copy(item) {
+                    island.notify(L("Скопировано"))
+                    SoundEffects.play(.copied)
+                } else {
+                    SoundEffects.play(.failure)
+                }
             },
             copyText: { item in
                 Task { @MainActor in
                     let text = await TextRecognizer.recognize(fileAt: item.url)
                     if text.isEmpty {
                         island.notify(L("Текст не найден"), symbol: "text.magnifyingglass")
+                        SoundEffects.play(.failure)
                     } else {
                         CaptureOutput.copyText(text)
                         island.notify(L("Текст скопирован"), symbol: "text.viewfinder")
+                        SoundEffects.play(.success)
                     }
                 }
             },
             reveal: { item in NSWorkspace.shared.activateFileViewerSelecting([item.url]) },
             keep: { item in
-                if shelf.keep(item) != nil { island.notify(L("Сохранено")) }
+                if shelf.keep(item) != nil {
+                    island.notify(L("Сохранено"))
+                    SoundEffects.play(.sent)
+                } else {
+                    SoundEffects.play(.failure)
+                }
             },
-            remove: { item in shelf.remove(item) },
-            trash: { item in shelf.remove(item, deleteFile: true) },
-            drop: { urls in shelf.addFiles(urls) },
-            dragStarted: { island.shelfDragStarted() }
+            remove: { item in
+                // The shelf's own copy goes with the item: not while an editor holds unsaved changes to it.
+                guard !item.shelfOnly || Self.closeEditor(of: item) else { return }
+                shelf.remove(item)
+                SoundEffects.play(.removed)
+            },
+            trash: { item in
+                guard Self.closeEditor(of: item) else { return }
+                shelf.remove(item, deleteFile: true)
+                SoundEffects.play(.removed)
+            },
+            select: { item in island.select(item) },
+            update: { command in Updates.perform(command) }
         )
+    }
+
+    /// Before an item's file is deleted: its editor closes, or, with unsaved changes, comes to the front and
+    /// the file stays.
+    private static func closeEditor(of item: ShelfItem) -> Bool {
+        if AnnotationEditor.closeUnlessModified(url: item.url) { return true }
+        IslandController.shared.notify(L("Снимок открыт в редакторе"), symbol: "pencil.tip.crop.circle")
+        SoundEffects.play(.failure)
+        return false
+    }
+
+    /// Puts an item on the clipboard the way it came: the picture, the file itself, the text.
+    private static func copy(_ item: ShelfItem) -> Bool {
+        switch item.kind {
+        case .image:
+            return CaptureOutput.copyFile(item.url)
+        case .file:
+            CaptureOutput.copyFileItself(item.url)
+            return true
+        case .text:
+            guard let text = Shelf.text(of: item) else { return false }
+            CaptureOutput.copyText(text)
+            return true
+        }
     }
 
     static func edit(_ item: ShelfItem) {
         AnnotationEditor.open(url: item.url, callbacks: EditorCallbacks(
-            didSave: { url in Shelf.shared.fileChanged(url) },
-            didSaveCopy: { url in Shelf.shared.addFiles([url]) },
-            didCopy: { IslandController.shared.notify(L("Скопировано")) }
+            didSave: { url in
+                Shelf.shared.fileChanged(url)
+                SoundEffects.play(.sent)
+            },
+            didSaveCopy: { url in
+                Shelf.shared.addFiles([url])
+                SoundEffects.play(.sent)
+            },
+            didCopy: {
+                IslandController.shared.notify(L("Скопировано"))
+                SoundEffects.play(.copied)
+            }
         ))
     }
 }

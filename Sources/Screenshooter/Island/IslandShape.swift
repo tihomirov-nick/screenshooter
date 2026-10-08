@@ -15,8 +15,8 @@ struct IslandShape: Shape {
     }
 
     func path(in rect: CGRect) -> Path {
-        let top = min(topRadius, rect.width / 4)
-        let bottom = min(bottomRadius, (rect.width - 2 * top) / 2, rect.height - top)
+        let top = max(0, min(topRadius, rect.width / 4, rect.height))
+        let bottom = max(0, min(bottomRadius, (rect.width - 2 * top) / 2, rect.height - top))
         var path = Path()
         path.move(to: CGPoint(x: rect.minX, y: rect.minY))
         // Top left: curve from the screen edge into the side.

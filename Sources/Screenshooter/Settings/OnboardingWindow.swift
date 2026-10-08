@@ -49,7 +49,6 @@ enum OnboardingWindow {
 private struct OnboardingView: View {
     let close: () -> Void
     @State private var screenGranted = Permissions.screenRecording
-    @State private var grantedAtLaunch = Permissions.screenRecording
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -70,7 +69,7 @@ private struct OnboardingView: View {
             .padding(.horizontal, 30)
 
             VStack(spacing: 0) {
-                PermissionRows()
+                PermissionRows(place: .onboarding)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
             }
@@ -90,7 +89,8 @@ private struct OnboardingView: View {
             .foregroundStyle(.secondary)
 
             HStack {
-                if screenGranted && !grantedAtLaunch {
+                // The app relaunches by itself once screen recording is on; the button is there if it could not.
+                if screenGranted && !Permissions.screenRecordingAtLaunch {
                     Button(L("Перезапустить")) { Permissions.relaunch() }
                         .help(L("Запись экрана начнёт работать после перезапуска"))
                 }

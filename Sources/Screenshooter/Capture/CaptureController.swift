@@ -14,6 +14,25 @@ final class CaptureController {
     private var previousApp: NSRunningApplication?
 
     var isCapturing: Bool { session != nil || starting }
+    /// Captures taken and not yet saved, text not yet recognised.
+    private var processing = 0
+    private var idleWork: [() -> Void] = []
+
+    /// A capture is on screen or its result is still being saved or read.
+    var isBusy: Bool { isCapturing || processing > 0 }
+
+    /// Runs `work` once nothing is captured, saved or recognised any more.
+    func whenIdle(_ work: @escaping () -> Void) {
+        idleWork.append(work)
+        settle()
+    }
+
+    private func settle() {
+        guard !isBusy, !idleWork.isEmpty else { return }
+        let work = idleWork
+        idleWork.removeAll()
+        work.forEach { $0() }
+    }
 
     private init() {}
 
@@ -21,12 +40,14 @@ final class CaptureController {
 
     /// The smart capture: freeze the screen, highlight what is under the pointer, capture on click.
     func startSmart(mode: CaptureSession.Mode = .image) {
-        guard !isCapturing else { return }
+        // The relaunch after an update would cut a capture off.
+        guard !isCapturing, !Updates.isInstalling else { return }
         guard Permissions.screenRecording else {
             OnboardingWindow.show()
             return
         }
         starting = true
+        StatusIcon.shared.capturing = true
         IslandController.shared.close()
         let front = NSWorkspace.shared.frontmostApplication
         previousApp = front?.processIdentifier == getpid() ? nil : front
@@ -37,7 +58,10 @@ final class CaptureController {
             AccessibilityBooster.shared.boost(windows)
         }
         Task { @MainActor in
-            defer { starting = false }
+            defer {
+                starting = false
+                settle()
+            }
             do {
                 let displays = try await ScreenCapturer.shared.freezeDisplays(excluding: hidden)
                 var options = RegionDetector.Options()
@@ -52,6 +76,7 @@ final class CaptureController {
                 self.session = session
                 session.begin()
             } catch {
+                StatusIcon.shared.capturing = false
                 report(error)
             }
         }
@@ -59,14 +84,17 @@ final class CaptureController {
 
     /// The whole display under the pointer, saved at once.
     func captureFullScreen() {
-        guard !isCapturing else { return }
+        guard !isCapturing, !Updates.isInstalling else { return }
         guard Permissions.screenRecording else {
             OnboardingWindow.show()
             return
         }
         starting = true
         Task { @MainActor in
-            defer { starting = false }
+            defer {
+                starting = false
+                settle()
+            }
             do {
                 let displays = try await ScreenCapturer.shared.freezeDisplays(excluding: IslandController.shared.windowIDs)
                 guard let display = displays.containing(ScreenGeometry.mouseLocation) ?? displays.first else { return }
@@ -84,9 +112,20 @@ final class CaptureController {
         AccessibilityBooster.shared.scheduleRestore()
         ScreenCapturer.shared.warmUp()
         returnFocus()
-        guard let selection else { return }
+        guard let selection else {
+            StatusIcon.shared.capturing = false
+            settle()
+            return
+        }
 
+        processing += 1
         Task { @MainActor in
+            // The icon keeps pulsing until the picture is taken or the text is read.
+            defer {
+                StatusIcon.shared.capturing = false
+                processing -= 1
+                settle()
+            }
             switch mode {
             case .image:
                 if let (image, scale) = await self.image(for: selection, displays: displays) {
@@ -95,13 +134,18 @@ final class CaptureController {
                     self.report(CaptureError.nothingCaptured)
                 }
             case .text:
-                guard let display = displays.best(for: selection.rect), let image = display.crop(selection.rect) else { return }
+                guard let display = displays.best(for: selection.rect), let image = display.crop(selection.rect) else {
+                    self.report(CaptureError.nothingCaptured)
+                    return
+                }
                 let text = await TextRecognizer.recognize(image)
                 if text.isEmpty {
                     IslandController.shared.notify(L("Текст не найден"), symbol: "text.magnifyingglass")
+                    SoundEffects.play(.failure)
                 } else {
                     CaptureOutput.copyText(text)
                     IslandController.shared.notify(L("Текст скопирован"), symbol: "text.viewfinder")
+                    SoundEffects.play(.success)
                 }
             }
         }
@@ -120,8 +164,10 @@ final class CaptureController {
 
     /// Saves, copies and puts the capture on the shelf. Encoding runs off the main thread.
     func deliver(_ image: CGImage, scale: CGFloat) {
-        CaptureOutput.playShutter()
+        SoundEffects.play(.shutter)
+        StatusIcon.shared.play(.turn)
         let copy = Prefs.copyToClipboard
+        processing += 1
         Task.detached(priority: .userInitiated) {
             do {
                 let saved = try CaptureOutput.save(image, scale: scale)
@@ -132,6 +178,10 @@ final class CaptureController {
                 }
             } catch {
                 await MainActor.run { self.report(error) }
+            }
+            await MainActor.run {
+                self.processing -= 1
+                self.settle()
             }
         }
     }
@@ -153,6 +203,6 @@ final class CaptureController {
             return
         }
         IslandController.shared.notify(error.localizedDescription, symbol: "exclamationmark.triangle.fill")
-        NSSound.beep()
+        SoundEffects.play(.failure)
     }
 }

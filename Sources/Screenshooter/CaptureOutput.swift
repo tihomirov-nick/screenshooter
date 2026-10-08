@@ -3,7 +3,7 @@ import ImageIO
 import ShotCore
 import UniformTypeIdentifiers
 
-/// Files, clipboard and sound for finished captures.
+/// Files and the clipboard for finished captures and the shelf.
 enum CaptureOutput {
     /// Encoded file data, with the DPI that makes Retina captures open at their on-screen size.
     static func encode(_ image: CGImage, scale: CGFloat, format: ImageFormat) -> Data? {
@@ -21,13 +21,8 @@ enum CaptureOutput {
 
     /// "Скриншот 2026-10-08 в 14.32.10.png", with " (2)" when the name is taken.
     static func newFileURL(in folder: URL, format: ImageFormat, date: Date = Date()) -> URL {
-        let day = DateFormatter()
-        day.locale = Locale(identifier: "en_US_POSIX")
-        day.dateFormat = "yyyy-MM-dd"
-        let time = DateFormatter()
-        time.locale = Locale(identifier: "en_US_POSIX")
-        time.dateFormat = "HH.mm.ss"
-        let base = L("Скриншот %@ в %@", day.string(from: date), time.string(from: date))
+        let stamp = fileNameStamp(date)
+        let base = L("Скриншот %@ в %@", stamp.day, stamp.time)
         var url = folder.appendingPathComponent(base).appendingPathExtension(format.fileExtension)
         var n = 2
         while FileManager.default.fileExists(atPath: url.path) {
@@ -35,6 +30,16 @@ enum CaptureOutput {
             n += 1
         }
         return url
+    }
+
+    /// "2026-10-08" and "14.32.10", for file names.
+    static func fileNameStamp(_ date: Date) -> (day: String, time: String) {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        let day = formatter.string(from: date)
+        formatter.dateFormat = "HH.mm.ss"
+        return (day, formatter.string(from: date))
     }
 
     /// Saves to the chosen folder (the Desktop by default) or, with saving turned off, to the shelf's
@@ -76,32 +81,27 @@ enum CaptureOutput {
         NSPasteboard.general.writeObjects([item])
     }
 
-    /// Copies an image file from the shelf.
-    static func copyFile(_ url: URL) {
+    /// Copies the picture in an image file from the shelf. False when the file cannot be read.
+    @discardableResult
+    static func copyFile(_ url: URL) -> Bool {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return }
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return false }
         let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         let dpi = (props?[kCGImagePropertyDPIWidth] as? NSNumber)?.doubleValue ?? 72
         let isPNG = (CGImageSourceGetType(source) as String?) == UTType.png.identifier
         copy(image, scale: max(1, CGFloat(dpi) / 72), png: isPNG ? try? Data(contentsOf: url) : nil)
+        return true
+    }
+
+    /// Copies a file itself: Finder pastes the file, mail and messengers attach it.
+    static func copyFileItself(_ url: URL) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([url as NSURL])
     }
 
     static func copyText(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-    }
-
-    // MARK: Sound
-
-    private static let shutter: NSSound? = {
-        let path = "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/Screen Capture.aif"
-        return NSSound(contentsOfFile: path, byReference: true) ?? NSSound(named: "Tink")
-    }()
-
-    static func playShutter() {
-        guard Prefs.playSound, let sound = shutter else { return }
-        sound.stop()
-        sound.play()
     }
 }
 

@@ -40,9 +40,21 @@ if ! gh_ release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
     }
 fi
 
-# 3. Build (build_app.sh regenerates Localizable.strings, which is tracked; make_dmg.sh signs ad-hoc)
+# 3. Build (build_app.sh regenerates Localizable.strings, which is tracked; make_dmg.sh signs with "tihomirov-nick")
 VERSION="$VERSION" ./scripts/make_dmg.sh
 [ -z "$(git status --porcelain)" ] || { echo "the build changed tracked files, commit them and run again:"; git status --short; exit 1; }
+
+# The app in the DMG must be signed by the certificate "tihomirov-nick": installed copies update only to such a version.
+CERT_SHA1="af82036140843a7d76497ea8e4cd23403c8aedc2"
+MOUNT="$(mktemp -d /tmp/screenshooter-release.XXXXXX)"
+hdiutil attach "$DMG" -nobrowse -readonly -noautoopen -mountpoint "$MOUNT" >/dev/null
+REQUIREMENT="$(codesign -d -r- "$MOUNT/Screenshooter.app" 2>&1 | tr '[:upper:]' '[:lower:]' || true)"
+hdiutil detach "$MOUNT" -quiet || hdiutil detach "$MOUNT" -force -quiet
+rmdir "$MOUNT" 2>/dev/null || true
+case "$REQUIREMENT" in
+    *"certificate leaf = h\"$CERT_SHA1\""*) echo "==> the app in the DMG is signed by tihomirov-nick" ;;
+    *) echo "the app in $DMG is not signed by the certificate tihomirov-nick: installed copies would refuse it; nothing pushed"; exit 1 ;;
+esac
 
 # 4. Tag and push
 git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || git tag -a "$TAG" -m "Screenshooter $VERSION"

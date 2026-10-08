@@ -23,13 +23,15 @@ struct IslandMetrics: Equatable {
     static let openWidth: CGFloat = 640
     static let shelfHeight: CGFloat = 132
     static let wing: CGFloat = 46
+    /// How much the island grows while something is dragged over it: barely noticeable.
+    static let dragGrowth: CGFloat = 0.025
 
     func size(for state: IslandState) -> CGSize {
         switch state {
         case .closed:
-            // A bit smaller than the housing so no black edge peeks out around it.
-            return hasNotch ? CGSize(width: notchWidth - 6, height: notchHeight - 2)
-                            : CGSize(width: notchWidth, height: notchHeight)
+            // A bit smaller than the housing so no black edge peeks out around it; without a notch, a line in the middle
+            // of the top edge that the island grows out of.
+            return hasNotch ? CGSize(width: notchWidth - 6, height: notchHeight - 2) : CGSize(width: notchWidth, height: 0)
         case .peek:
             return CGSize(width: notchWidth + 2 * Self.wing, height: notchHeight)
         case .banner:
@@ -64,14 +66,29 @@ final class IslandModel {
     var peekItemID: UUID?
     var bannerText = ""
     var bannerSymbol = "checkmark.circle.fill"
-    /// A file is dragged over the open shelf.
+    /// Files or text the shelf can take are dragged over it.
     var dropTargeted = false
+    /// Something is dragged over the island, into the shelf or out of it: the island grows a little.
+    var dragOver = false
     /// Briefly highlights a card (the capture that just arrived).
     var highlightedItemID: UUID?
+    /// The card under the pointer.
+    var hoveredItemID: UUID?
+    /// The card chosen with a click: the shelf holds the keyboard for it (⌘C, ⌫).
+    var selectedItemID: UUID?
     /// A short confirmation in the open shelf's header ("Скопировано").
     var toast: String?
+    /// A new version offered, downloading, installing or failed to install: a card at the start of the shelf.
+    var update: Updater.State?
 
     var size: CGSize { metrics.size(for: state) }
+
+    /// The size on screen: grown a touch from the top edge while something is dragged over the island.
+    var shapeSize: CGSize {
+        guard dragOver else { return size }
+        let k = 1 + IslandMetrics.dragGrowth
+        return CGSize(width: size.width * k, height: size.height * k)
+    }
 
     /// On displays without a notch nothing is drawn while closed.
     var isVisible: Bool { state != .closed || metrics.hasNotch }

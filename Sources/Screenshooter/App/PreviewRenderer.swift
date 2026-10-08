@@ -3,6 +3,7 @@ import AppKit
 import Detection
 import ShotCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// `Screenshooter --render-previews DIR` draws the overlay and every island state with made-up content
 /// into PNG files and quits — for checking the look without touching the screen.
@@ -40,26 +41,41 @@ enum PreviewRenderer {
         view.update(manual, animated: false)
         write(render(view.layer!, size: view.bounds.size, scale: 2), to: folder.appendingPathComponent("overlay-manual.png"))
 
-        // The island in each state, on a light menu bar.
-        let items = (0..<5).map { i in
+        // The island in each state, on a light menu bar. The shelf holds captures, a text and two files.
+        var items = (0..<5).map { i in
             ShelfItem(id: UUID(), url: URL(fileURLWithPath: "/tmp/preview-\(i).png"),
                       date: Date().addingTimeInterval(-Double(i) * 600), pixelWidth: [1672, 840, 2400, 600, 1200][i],
-                      pixelHeight: [1246, 220, 1500, 1776, 800][i], shelfOnly: false)
+                      pixelHeight: [1246, 220, 1500, 1776, 800][i], shelfOnly: false, isCapture: true)
         }
         var thumbs: [UUID: NSImage] = [:]
         for (i, item) in items.enumerated() {
             thumbs[item.id] = Shelf.thumbnail(of: fakeThumbnail(i, width: item.pixelWidth, height: item.pixelHeight))
         }
-        let shelf = Shelf(preview: items, thumbnails: thumbs)
+        let note = ShelfItem(id: UUID(), kind: .text, url: URL(fileURLWithPath: "/tmp/preview.txt"),
+                             date: Date().addingTimeInterval(-300), shelfOnly: true)
+        let pdf = ShelfItem(id: UUID(), kind: .file, url: URL(fileURLWithPath: "/tmp/Договор поставки.pdf"),
+                            date: Date().addingTimeInterval(-400))
+        let archive = ShelfItem(id: UUID(), kind: .file, url: URL(fileURLWithPath: "/tmp/Макеты.zip"),
+                                date: Date().addingTimeInterval(-500))
+        items.insert(contentsOf: [note, pdf, archive], at: 1)
+        thumbs[pdf.id] = NSWorkspace.shared.icon(for: .pdf)
+        thumbs[archive.id] = NSWorkspace.shared.icon(for: .zip)
+        let texts = [note.id: "Встреча в четверг в 15:00. Обсудить сроки по второму этапу, бюджет на дизайн и кто готовит презентацию для клиента."]
+        let shelf = Shelf(preview: items, thumbnails: thumbs, texts: texts)
         let actions = IslandActions(capture: {}, openFolder: {}, openSettings: {}, clear: {}, edit: { _ in },
                                     open: { _ in }, copy: { _ in }, copyText: { _ in }, reveal: { _ in }, keep: { _ in },
-                                    remove: { _ in }, trash: { _ in }, drop: { _ in }, dragStarted: {})
+                                    remove: { _ in }, trash: { _ in }, select: { _ in }, update: { _ in })
         let states: [(String, IslandState, (IslandModel) -> Void)] = [
             ("closed", .closed, { _ in }),
             ("peek", .peek, { $0.peekItemID = items[0].id }),
             ("banner", .banner, { $0.bannerText = L("Текст скопирован"); $0.bannerSymbol = "text.viewfinder" }),
             ("open", .open, { $0.highlightedItemID = items[0].id }),
             ("open-toast", .open, { $0.toast = L("Скопировано") }),
+            ("open-selected", .open, { $0.selectedItemID = items[0].id }),
+            ("open-drop", .open, { $0.dropTargeted = true }),
+            ("open-update", .open, { $0.update = .available(sampleRelease) }),
+            ("open-downloading", .open, { $0.update = .downloading(sampleRelease, progress: 0.42) }),
+            ("open-update-failed", .open, { $0.update = .failed(.notTrusted, sampleRelease) }),
         ]
         for (name, islandState, configure) in states {
             let model = IslandModel()
@@ -74,6 +90,8 @@ enum PreviewRenderer {
             .frame(width: size.width, height: size.height)
             write(renderSwiftUI(content, size: size), to: folder.appendingPathComponent("island-\(name).png"))
         }
+        writeStatusIconFrames(into: folder)
+
         let empty = IslandModel()
         empty.metrics = IslandMetrics(notchWidth: 185, notchHeight: 32, hasNotch: true)
         empty.state = .open
@@ -85,6 +103,43 @@ enum PreviewRenderer {
         }
         .frame(width: size.width, height: size.height)
         write(renderSwiftUI(emptyContent, size: size), to: folder.appendingPathComponent("island-empty.png"))
+    }
+
+    private static let sampleRelease = Updater.Release(
+        version: "1.1.0", title: "Screenshooter 1.1.0",
+        notes: "## Что нового\n- На полку можно класть любые файлы и текст\n- Островок раскрывается из выреза",
+        page: URL(string: "https://github.com/tihomirov-nick/screenshooter/releases/tag/v1.1.0")!,
+        dmg: URL(string: "https://example.com/Screenshooter-1.1.0.dmg")!, size: 4_000_000)
+
+    /// The menu bar icon at rest and through each of its motions, white on a dark menu bar, one strip each.
+    private static func writeStatusIconFrames(into folder: URL) {
+        let strips: [(String, [NSImage])] = [
+            ("rest", [StatusIcon.image()]),
+            ("turn", stride(from: 0.0, through: 1.0, by: 0.125).map { StatusIcon.image(turn: StatusIcon.turn($0)) }),
+            ("bounce", stride(from: 0.0, through: 1.0, by: 0.125).map { StatusIcon.image(lift: StatusIcon.bounce($0)) }),
+            ("pulse", stride(from: 0.0, through: 1.2, by: 0.15).map { StatusIcon.image(rifling: StatusIcon.pulse($0)) }),
+        ]
+        for (name, frames) in strips {
+            let size = NSSize(width: CGFloat(frames.count) * 28, height: 28)
+            let strip = NSImage(size: size, flipped: false) { _ in
+                NSColor(white: 0.17, alpha: 1).setFill()
+                NSRect(origin: .zero, size: size).fill()
+                for (i, frame) in frames.enumerated() {
+                    let white = NSImage(size: frame.size, flipped: false) { rect in
+                        frame.draw(in: rect)
+                        NSColor.white.set()
+                        rect.fill(using: .sourceAtop)
+                        return true
+                    }
+                    white.draw(in: NSRect(x: CGFloat(i) * 28 + 5, y: 5, width: 18, height: 18))
+                }
+                return true
+            }
+            var rect = NSRect(origin: .zero, size: size)
+            if let cg = strip.cgImage(forProposedRect: &rect, context: nil, hints: [.ctm: AffineTransform(scale: 2)]) {
+                write(cg, to: folder.appendingPathComponent("statusicon-\(name).png"))
+            }
+        }
     }
 
     /// The settings tabs and the welcome window, kept behind all other windows while they are drawn.

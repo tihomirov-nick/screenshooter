@@ -1,17 +1,20 @@
 import AppKit
+import Carbon.HIToolbox
 import ShotCore
 import SwiftUI
 
 /// The panel at the top of the screen that grows out of the notch: it shows each new capture for a
-/// moment, opens into the shelf when the pointer comes to the notch, and takes images dropped onto it.
+/// moment, opens into the shelf when the pointer comes to the notch, and takes files and text dropped onto it.
 @MainActor
-final class IslandController {
+final class IslandController: IslandDropTarget {
     static let shared = IslandController()
 
     let model = IslandModel()
     var actions: IslandActions?
 
     private var panel: IslandPanel?
+    /// Holds the keyboard while a card is chosen with a click (⌘C, ⌫).
+    private var keyPanel: IslandKeyPanel?
     private var screen: NSScreen?
     /// Horizontal centre of the notch, AppKit coordinates.
     private var centerX: CGFloat = 0
@@ -24,6 +27,12 @@ final class IslandController {
     private var toastWork: DispatchWorkItem?
     private var menuTracking = false
     private var draggingFromShelf = false
+    /// The drag pasteboard's change count at the last mouse down. A drag that started since then wrote to
+    /// it; a window or a text selection being dragged did not.
+    private var dragCountAtMouseDown = 0
+    /// The card under the pointer at the last mouse down on the panel, and that mouse down.
+    private var pressedCard: (item: ShelfItem, event: NSEvent)?
+    private let dragSource = ShelfDragSource()
     /// Opened from the menu or a shortcut: stays until the pointer has been over it (or a click elsewhere).
     private var waitingForPointer = false
     private var observers: [NSObjectProtocol] = []
@@ -42,9 +51,16 @@ final class IslandController {
     func start() {
         guard panel == nil, Prefs.islandEnabled, let actions else { return }
         let panel = IslandPanel()
+        panel.mouseFilter = { [weak self] event in self?.panelMouse(event) ?? false }
+        dragSource.onEnd = { [weak self] in
+            self?.draggingFromShelf = false
+            self?.evaluate()
+        }
         let root = IslandRootView(model: model, shelf: Shelf.shared, actions: actions)
         let hosting = IslandHostingView(rootView: root)
         hosting.sizingOptions = []
+        hosting.dropTarget = self
+        hosting.registerForDraggedTypes(Shelf.dropTypes)
         panel.contentView = hosting
         self.panel = panel
         layout()
@@ -67,7 +83,7 @@ final class IslandController {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
                                             queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.layout() }
+            MainActor.assumeIsolated { self?.refresh() }
         })
         observers.append(center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil,
                                             queue: .main) { [weak self] _ in
@@ -80,10 +96,13 @@ final class IslandController {
                 self?.evaluate()
             }
         })
-        workspaceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.panel?.orderFrontRegardless() }
-        })
+        for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didWakeNotification,
+                     NSWorkspace.screensDidWakeNotification] {
+            workspaceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refresh() }
+            })
+        }
     }
 
     func stop() {
@@ -95,6 +114,7 @@ final class IslandController {
         workspaceObservers.removeAll()
         pollTimer?.invalidate()
         pollTimer = nil
+        keyPanel?.orderOut(nil)
         panel?.orderOut(nil)
         panel = nil
         model.state = .closed
@@ -130,6 +150,15 @@ final class IslandController {
         let size = metrics.panelSize
         panel.setFrame(NSRect(x: centerX - size.width / 2, y: top - size.height, width: size.width, height: size.height),
                        display: true)
+    }
+
+    /// After a change of displays or of Space, and after sleep: the panel back over the notch and in front,
+    /// and a look at the pointer, which may already be resting at the notch (no mouse events arrive while
+    /// Spaces slide).
+    private func refresh() {
+        layout()
+        panel?.orderFrontRegardless()
+        evaluate()
     }
 
     // MARK: - Showing things
@@ -173,6 +202,8 @@ final class IslandController {
         openWork = nil
         Shelf.shared.pruneMissing()
         waitingForPointer = explicitly && !isPointerOverIsland
+        // Cards report the pointer again as they appear.
+        model.hoveredItemID = nil
         setState(.open)
         startPolling()
         evaluate()
@@ -184,6 +215,9 @@ final class IslandController {
         waitingForPointer = false
         setState(.closed)
         model.dropTargeted = false
+        model.dragOver = false
+        model.hoveredItemID = nil
+        deselect()
         evaluate()
     }
 
@@ -211,17 +245,21 @@ final class IslandController {
 
     // MARK: - Pointer
 
-    /// The island's outline in the given state, AppKit coordinates.
+    // A pointer pushed against the top of the screen sits exactly on its edge, y == top, and
+    // `NSRect.contains` leaves the top edge out. So the rectangles below reach a point above the screen;
+    // otherwise the most natural way to reach the notch, flinging the pointer up, would not open it.
+
+    /// The island's outline in the given state (grown while something is dragged over it), AppKit coordinates.
     private func shapeRect(_ state: IslandState) -> NSRect {
-        let size = model.metrics.size(for: state)
-        return NSRect(x: centerX - size.width / 2, y: top - size.height, width: size.width, height: size.height)
+        let size = state == model.state ? model.shapeSize : model.metrics.size(for: state)
+        return NSRect(x: centerX - size.width / 2, y: top - size.height, width: size.width, height: size.height + 1)
     }
 
     /// Where the pointer opens the closed island: the camera housing (or the middle of the menu bar).
     private var hotRect: NSRect {
         let m = model.metrics
         return NSRect(x: centerX - m.notchWidth / 2 - 8, y: top - m.notchHeight - 3,
-                      width: m.notchWidth + 16, height: m.notchHeight + 3)
+                      width: m.notchWidth + 16, height: m.notchHeight + 4)
     }
 
     private var isPointerOverIsland: Bool {
@@ -233,6 +271,7 @@ final class IslandController {
         case .leftMouseUp:
             draggingFromShelf = false
         case .leftMouseDown, .rightMouseDown:
+            if event.type == .leftMouseDown { dragCountAtMouseDown = NSPasteboard(name: .drag).changeCount }
             let mouse = NSEvent.mouseLocation
             if model.state == .open {
                 // A click anywhere else puts the open shelf away.
@@ -263,7 +302,7 @@ final class IslandController {
                 return
             }
             if dragging {
-                if isFileDrag { open() }
+                if isExternalDrag { open() }
             } else if Prefs.islandOpenOnHover, openWork == nil {
                 let work = DispatchWorkItem { [weak self] in
                     guard let self else { return }
@@ -276,6 +315,15 @@ final class IslandController {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
             }
         case .open:
+            // The chosen card left the shelf (its button, the menu, the shelf cleared): nothing holds the keyboard.
+            if let id = model.selectedItemID, !Shelf.shared.items.contains(where: { $0.id == id }) { deselect() }
+            // The end of a drag does not always reach the island (the mouse up that ends a card's way out of
+            // the shelf never gets to the monitors): no button held, no drag.
+            if NSEvent.pressedMouseButtons == 0 {
+                draggingFromShelf = false
+                if model.dragOver { model.dragOver = false }
+                if model.dropTargeted { model.dropTargeted = false }
+            }
             let keep = shapeRect(.open).insetBy(dx: -18, dy: -18).contains(mouse)
             if keep { waitingForPointer = false }
             let busy = menuTracking || draggingFromShelf || model.dropTargeted || waitingForPointer
@@ -310,15 +358,60 @@ final class IslandController {
         if panel.ignoresMouseEvents == active { panel.ignoresMouseEvents = !active }
     }
 
-    /// Files from Finder (or any app) are being dragged, not one of the shelf's own cards.
-    private var isFileDrag: Bool {
+    /// Files, text or a picture from another app are being dragged; not a shelf card, a window or a selection.
+    private var isExternalDrag: Bool {
         guard !draggingFromShelf else { return false }
-        let types = NSPasteboard(name: .drag).types ?? []
-        return types.contains(.fileURL)
+        let pasteboard = NSPasteboard(name: .drag)
+        return pasteboard.changeCount != dragCountAtMouseDown && Shelf.canTake(pasteboard)
     }
 
-    func shelfDragStarted() {
+    // MARK: - Dragging out
+
+    /// The panel's mouse events, before SwiftUI sees them: a card pressed and moved a few points leaves the
+    /// shelf as an AppKit drag. SwiftUI's own drag would hand other apps a copy of a file from its cache;
+    /// this one gives them the file itself (or the text) and says when the drag is over.
+    private func panelMouse(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .leftMouseDown:
+            pressedCard = model.hoveredItemID.flatMap { id in Shelf.shared.items.first { $0.id == id } }.map { ($0, event) }
+            // A click on the island off the cards lets go of the chosen one, and of the keyboard.
+            if pressedCard == nil { deselect() }
+        case .leftMouseDragged:
+            guard let pressed = pressedCard else { return false }
+            let a = pressed.event.locationInWindow, b = event.locationInWindow
+            guard hypot(b.x - a.x, b.y - a.y) >= 4 else { return false }
+            pressedCard = nil
+            beginDrag(pressed.item, from: pressed.event)
+            return true
+        case .leftMouseUp:
+            pressedCard = nil
+        default:
+            break
+        }
+        return false
+    }
+
+    private func beginDrag(_ item: ShelfItem, from event: NSEvent) {
+        guard let view = panel?.contentView else { return }
+        let writer: NSPasteboardWriting
+        if item.kind == .text {
+            guard let text = Shelf.text(of: item) else { return }
+            writer = text as NSString
+        } else {
+            writer = item.url as NSURL
+        }
+        let renderer = ImageRenderer(content: ShelfDragPreview(item: item, thumbnail: Shelf.shared.thumbnails[item.id],
+                                                               text: Shelf.shared.texts[item.id]))
+        renderer.scale = view.window?.backingScaleFactor ?? 2
+        let image = renderer.nsImage ?? NSWorkspace.shared.icon(forFile: item.url.path)
+        let point = view.convert(event.locationInWindow, from: nil)
+        let draggingItem = NSDraggingItem(pasteboardWriter: writer)
+        draggingItem.setDraggingFrame(NSRect(x: point.x - image.size.width / 2, y: point.y - image.size.height / 2,
+                                             width: image.size.width, height: image.size.height), contents: image)
         draggingFromShelf = true
+        // The card is on its way into another app: the keyboard goes back there too.
+        deselect()
+        view.beginDraggingSession(with: [draggingItem], event: event, source: dragSource)
     }
 
     /// While the island is not closed, checks the pointer a few times a second: over the panel itself the
@@ -339,10 +432,111 @@ final class IslandController {
         RunLoop.main.add(timer, forMode: .common)
         pollTimer = timer
     }
+
+    // MARK: - Keyboard
+
+    // The island panel never becomes key: it stays on screen, so it would keep the keyboard after the shelf
+    // closes. A separate invisible panel takes it, and only after a click on a card: pointing at the shelf, or
+    // leaving the pointer there, never takes the keyboard from the app being typed in. Esc, a click elsewhere
+    // or the shelf closing order the panel out, which hands the keyboard back to that app.
+
+    /// A click on a card chooses it.
+    func select(_ item: ShelfItem) {
+        model.selectedItemID = item.id
+        let keyPanel = self.keyPanel ?? IslandKeyPanel()
+        keyPanel.onKey = { [weak self] event in self?.key(event) ?? true }
+        // Another app took the keyboard (⌘⇥, a click into its window): the card is no longer chosen.
+        keyPanel.onResignKey = { [weak self] in
+            guard let self, self.model.selectedItemID != nil else { return }
+            self.deselect()
+        }
+        self.keyPanel = keyPanel
+        keyPanel.setFrameOrigin(NSPoint(x: centerX, y: top - 1))
+        keyPanel.orderFrontRegardless()
+        keyPanel.makeKey()
+    }
+
+    private func deselect() {
+        model.selectedItemID = nil
+        keyPanel?.orderOut(nil)
+    }
+
+    /// ⌘C copies the chosen card, ⌫ takes it away the way its quick button does, Esc lets go of it. Every other
+    /// key is swallowed: ⌘Q or ⌘W must not reach this app's menu.
+    private func key(_ event: NSEvent) -> Bool {
+        guard let id = model.selectedItemID, let item = Shelf.shared.items.first(where: { $0.id == id }) else {
+            deselect()
+            return true
+        }
+        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        let code = Int(event.keyCode)
+        if flags == .command, Self.isCopyKey(event) {
+            actions?.copy(item)
+        } else if flags.isEmpty, code == kVK_Delete || code == kVK_ForwardDelete {
+            deselect()
+            if item.isCapture { actions?.trash(item) } else { actions?.remove(item) }
+        } else if flags.isEmpty, code == kVK_Escape {
+            deselect()
+        }
+        return true
+    }
+
+    /// The C key: by its letter, or by its place with a non-Latin layout.
+    private static func isCopyKey(_ event: NSEvent) -> Bool {
+        if let chars = event.charactersIgnoringModifiers?.lowercased(), chars.unicodeScalars.allSatisfy(\.isASCII) {
+            return chars == "c"
+        }
+        return Int(event.keyCode) == kVK_ANSI_C
+    }
+
+    // MARK: - Dropping
+
+    func dragUpdated(_ info: NSDraggingInfo) -> NSDragOperation {
+        let takes = !draggingFromShelf && Shelf.canTake(info.draggingPasteboard)
+        if takes, model.state != .open { open() }
+        if model.dropTargeted != takes { model.dropTargeted = takes }
+        // In or out: a card on its way out of the shelf grows the island too, until it leaves.
+        if !model.dragOver { model.dragOver = true }
+        return takes ? .copy : []
+    }
+
+    func dragExited() {
+        if model.dropTargeted { model.dropTargeted = false }
+        if model.dragOver { model.dragOver = false }
+    }
+
+    func drop(_ info: NSDraggingInfo) -> Bool {
+        model.dropTargeted = false
+        model.dragOver = false
+        guard !draggingFromShelf, Shelf.canTake(info.draggingPasteboard) else { return false }
+        Shelf.shared.add(from: info.draggingPasteboard) { [weak self] items in
+            guard let self else { return }
+            if let first = items.first {
+                SoundEffects.play(.added)
+                StatusIcon.shared.play(.bounce)
+                self.flashCard(first.id)
+            } else {
+                SoundEffects.play(.failure)
+                self.notify(L("Не удалось положить на полку"), symbol: "exclamationmark.triangle.fill")
+            }
+        }
+        return true
+    }
+}
+
+/// What the island's hosting view asks while something is dragged over it.
+@MainActor
+protocol IslandDropTarget: AnyObject {
+    func dragUpdated(_ info: NSDraggingInfo) -> NSDragOperation
+    func dragExited()
+    func drop(_ info: NSDraggingInfo) -> Bool
 }
 
 /// Borderless panel above the menu bar that never takes focus from the app being worked in.
 final class IslandPanel: NSPanel {
+    /// Sees the panel's mouse events first; true for the ones it handled.
+    var mouseFilter: ((NSEvent) -> Bool)?
+
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -361,9 +555,95 @@ final class IslandPanel: NSPanel {
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    override func sendEvent(_ event: NSEvent) {
+        if mouseFilter?(event) == true { return }
+        super.sendEvent(event)
+    }
 }
 
-/// Clicks work at once although the panel is never the key window.
+/// A card's way out of the shelf. Copy only: a move would take a file away from where the shelf keeps it.
+final class ShelfDragSource: NSObject, NSDraggingSource {
+    var onEnd: (() -> Void)?
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        .copy
+    }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        onEnd?()
+    }
+}
+
+/// Invisible, and key only while a shelf card is chosen (see `IslandController.select`). Being a non-activating
+/// panel, it takes the keyboard without bringing this app to the front.
+final class IslandKeyPanel: NSPanel {
+    /// Gets every key pressed while the panel is key; returns whether it was handled.
+    var onKey: ((NSEvent) -> Bool)?
+    /// The keyboard went elsewhere.
+    var onResignKey: (() -> Void)?
+
+    init() {
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
+                   styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        isFloatingPanel = true
+        level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2)
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        backgroundColor = .clear
+        isOpaque = false
+        hasShadow = false
+        hidesOnDeactivate = false
+        isReleasedWhenClosed = false
+        ignoresMouseEvents = true
+        animationBehavior = .none
+    }
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        onKey?(event) ?? super.performKeyEquivalent(with: event)
+    }
+
+    /// Keys go to `onKey` and no further: a key window with no one to take a key would beep.
+    override func sendEvent(_ event: NSEvent) {
+        switch event.type {
+        case .keyDown: _ = onKey?(event)
+        case .keyUp: break
+        default: super.sendEvent(event)
+        }
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        onResignKey?()
+    }
+}
+
+/// Clicks work at once although the panel is never the key window. Files, text and pictures dragged from
+/// other apps are dropped onto it.
 final class IslandHostingView<Content: View>: NSHostingView<Content> {
+    weak var dropTarget: IslandDropTarget?
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        dropTarget?.dragUpdated(sender) ?? []
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        dropTarget?.dragUpdated(sender) ?? []
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        dropTarget?.dragExited()
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        dropTarget?.dragExited()
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        dropTarget?.drop(sender) ?? false
+    }
 }

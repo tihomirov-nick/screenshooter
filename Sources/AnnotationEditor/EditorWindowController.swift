@@ -178,10 +178,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSTool
         scrollView.maxMagnification = 16
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(white: 0.13, alpha: 1) : NSColor(white: 0.88, alpha: 1)
-        }
+        // Dark in the light appearance too: transparent window corners and a window shadow would otherwise
+        // sit on a light plate that was never on the screen.
+        scrollView.backgroundColor = NSColor(white: 0.13, alpha: 1)
         scrollView.postsFrameChangedNotifications = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
