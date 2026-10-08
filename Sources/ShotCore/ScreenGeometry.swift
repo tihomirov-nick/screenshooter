@@ -15,16 +15,8 @@ public enum ScreenGeometry {
         CGPoint(x: p.x, y: mainDisplayHeight - p.y)
     }
 
-    public static func appKitPoint(fromScreen p: CGPoint) -> NSPoint {
-        NSPoint(x: p.x, y: mainDisplayHeight - p.y)
-    }
-
     public static func screenRect(fromAppKit r: NSRect) -> CGRect {
         CGRect(x: r.minX, y: mainDisplayHeight - r.maxY, width: r.width, height: r.height)
-    }
-
-    public static func appKitRect(fromScreen r: CGRect) -> NSRect {
-        NSRect(x: r.minX, y: mainDisplayHeight - r.maxY, width: r.width, height: r.height)
     }
 
     /// The mouse position in screen space.

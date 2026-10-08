@@ -1,20 +1,15 @@
 // Renders the app icon: Resources/AppIcon.icon (the Icon Composer package that build_app.sh compiles with actool)
 // and Resources/AppIcon-1024.png (the whole icon, for the README).
-// Usage: swift scripts/make_icon.swift [tunnel|rifling|minimal]
+// Usage: swift scripts/make_icon.swift
 //
 // Screen + shooter: the view straight down a gun barrel, the rifling turning inside it, like the gun barrel opening of
 // the Bond films. Only the muzzle and the rifling, no gun. Flat, black and white, like the other apps of the family:
 // a pure black body and white marks, flat fills only, with no gradients, glass or shadows. The one grey (white at
-// 45 % over the black body) gives depth where it is needed. The muzzle ring is about as heavy as the family's marks
-// (80 px; the pills of the other icons are 84).
-//   tunnel   the muzzle, rings in grey shrinking into the dark bore, and five grooves turning in across them (the default)
-//   rifling  the muzzle and six grooves, without the rings
-//   minimal  the end of the bore only: a heavier muzzle and six short lands round a dark centre, clearest at 16 px
-// The grooves are logarithmic spirals that narrow with depth, as down a tunnel; they leave the muzzle from under the
-// ring and end short of the centre, which stays dark.
+// 45 % over the black body) gives depth. The mark is the muzzle ring, about as heavy as the family's marks (80 px; the
+// pills of the other icons are 84), rings of the bore in grey shrinking into the dark, and five grooves turning in
+// across them. The grooves are logarithmic spirals that narrow with depth, as down a tunnel; they leave the muzzle
+// from under the ring and end short of the centre, which stays dark.
 import AppKit
-
-let variant = CommandLine.arguments.dropFirst().first ?? "tunnel"
 
 let bodyColor: (red: CGFloat, green: CGFloat, blue: CGFloat) = (0, 0, 0)
 
@@ -56,29 +51,15 @@ func drawMark(_ ctx: CGContext) {
     }
 
     // The muzzle takes about three quarters of the body, as wide as the other icons' marks look.
-    switch variant {
-    case "minimal":
-        // Only the end of the bore: a heavier muzzle and six short lands round a dark centre.
-        ring(radius: 256, width: 104)
-        for k in 0..<6 {
-            groove(start: CGFloat(k) * .pi / 3 + 0.2, outer: 256, inner: 120, twist: 0.9, width: 96)
-        }
-    case "rifling":
-        ring(radius: 262, width: 80)
-        for k in 0..<6 {
-            groove(start: CGFloat(k) * .pi / 3 + 0.2, outer: 262, inner: 30, twist: 2.2, width: 72)
-        }
-    default:
-        ring(radius: 262, width: 80)
-        // The bore in perspective: rings closer and thinner the deeper they are, in grey.
-        ctx.saveGState()
-        ctx.setAlpha(0.45)
-        for (radius, width) in [(176.0, 26.0), (112.0, 18.0), (72.0, 12.0)] { ring(radius: radius, width: width) }
-        ctx.restoreGState()
-        // Five grooves, broad enough to show at 32 px.
-        for k in 0..<5 {
-            groove(start: CGFloat(k) * 2 * .pi / 5 + 0.2, outer: 262, inner: 30, twist: 2.0, width: 84)
-        }
+    ring(radius: 262, width: 80)
+    // The bore in perspective: rings closer and thinner the deeper they are, in grey.
+    ctx.saveGState()
+    ctx.setAlpha(0.45)
+    for (radius, width) in [(176.0, 26.0), (112.0, 18.0), (72.0, 12.0)] { ring(radius: radius, width: width) }
+    ctx.restoreGState()
+    // Five grooves, broad enough to show at 32 px.
+    for k in 0..<5 {
+        groove(start: CGFloat(k) * 2 * .pi / 5 + 0.2, outer: 262, inner: 30, twist: 2.0, width: 84)
     }
 }
 

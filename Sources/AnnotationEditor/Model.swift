@@ -127,14 +127,6 @@ enum Tool: String, CaseIterable, Identifiable {
         case .crop: return kVK_ANSI_C
         }
     }
-
-    /// Tools that draw new annotations by dragging.
-    var drawsShapes: Bool {
-        switch self {
-        case .arrow, .line, .rectangle, .ellipse, .pen, .highlighter, .pixelate: return true
-        default: return false
-        }
-    }
 }
 
 /// Stroke widths in points of the image; multiplied by the document's style unit.

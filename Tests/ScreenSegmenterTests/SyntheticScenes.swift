@@ -1,7 +1,6 @@
 import CoreGraphics
 import CoreText
 import Foundation
-import ImageIO
 import ScreenSegmenter
 
 // Synthetic interface screenshots with known geometry: a messenger (sidebar, header, chat with plain or
@@ -603,35 +602,4 @@ func check(_ scene: Scene, _ regions: [VisualRegion], threshold: CGFloat = 0.85)
         }
     }
     return report
-}
-
-/// Writes the image with found regions outlined: panels blue, boxes green, text blocks orange,
-/// expected rectangles as thin magenta lines.
-func writeDebugImage(_ scene: Scene, _ regions: [VisualRegion], to url: URL) {
-    let image = scene.image
-    let w = image.width, h = image.height
-    let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
-                        space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-    ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-    ctx.translateBy(x: 0, y: CGFloat(h))
-    ctx.scaleBy(x: 1, y: -1)
-    for e in scene.expected {
-        ctx.setStrokeColor(CGColor(srgbRed: 1, green: 0, blue: 1, alpha: 0.9))
-        ctx.setLineWidth(1)
-        ctx.stroke(pointsRect(e.rect, scale: scene.scale).insetBy(dx: 0.5, dy: 0.5))
-    }
-    for r in regions {
-        switch r.kind {
-        case .panel: ctx.setStrokeColor(CGColor(srgbRed: 0.1, green: 0.4, blue: 1, alpha: 0.9))
-        case .box: ctx.setStrokeColor(CGColor(srgbRed: 0, green: 0.8, blue: 0.2, alpha: 0.95))
-        case .textBlock: ctx.setStrokeColor(CGColor(srgbRed: 1, green: 0.5, blue: 0, alpha: 0.95))
-        }
-        ctx.setLineWidth(3)
-        ctx.stroke(r.rect.insetBy(dx: 1.5, dy: 1.5))
-    }
-    let out = ctx.makeImage()!
-    let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil)!
-    CGImageDestinationAddImage(dest, out, nil)
-    CGImageDestinationFinalize(dest)
 }

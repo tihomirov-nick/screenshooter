@@ -90,9 +90,6 @@ public enum Localization {
         }
     }
 
-    /// Number style of the interface language ("1,08 ГБ" in Russian, "1.08 GB" in English).
-    public static let numberLocale = Locale(identifier: current == "ru" ? "ru_RU" : "en_US")
-
     static func string(_ key: String) -> String {
         bundle?.localizedString(forKey: key, value: key, table: nil) ?? key
     }

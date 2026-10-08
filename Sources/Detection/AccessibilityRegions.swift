@@ -82,12 +82,6 @@ public final class AccessibilityRegions {
         return regions.reversed()
     }
 
-    /// Forgets cached elements (the interface may have changed).
-    public func reset() {
-        cache.removeAll()
-        unresponsive.removeAll()
-    }
-
     // MARK: - Elements
 
     private func application(_ pid: pid_t) -> AXUIElement {

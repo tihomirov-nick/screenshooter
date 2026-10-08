@@ -168,10 +168,8 @@ DMG собирается в `build/release`, и локальная копия в
 На иконке вид прямо в дуло с нарезным стволом внутри, как в заставке фильмов о Бонде. Это игра слов «скрин»
 и «шутер». Пистолета на иконке нет, только дуло и нарезы. Она плоская и чёрно-белая, как у остальных приложений
 семейства: чёрный корпус, белые линии, а единственный серый (белый 45 % поверх чёрного) даёт глубину. Нарезы
-нарисованы логарифмическими спиралями и сужаются к тёмному центру канала, как туннель в перспективе. Основной
-вариант `tunnel`: кольцо дула, серые кольца ствола, уменьшающиеся вглубь, и пять нарезов. Есть ещё `rifling` (дуло
-и шесть нарезов без колец) и `minimal` (только срез ствола, толстое кольцо и шесть коротких полей вокруг тёмного
-центра; он лучше всего читается в 16 px). Другой вариант ставит, например, `swift scripts/make_icon.swift minimal`.
+нарисованы логарифмическими спиралями и сужаются к тёмному центру канала, как туннель в перспективе. На знаке
+кольцо дула, серые кольца ствола, уменьшающиеся вглубь, и пять нарезов.
 
 ### Релиз и сертификат «tihomirov-nick»
 
@@ -214,6 +212,8 @@ DMG собирается в `build/release`, и локальная копия в
 swift run shotprobe at 760 530 --pixels   # цепочка областей под точкой (только рамки и типы)
 swift run shotprobe follow 20             # то же под указателем в течение 20 секунд
 build/Screenshooter.app/Contents/MacOS/Screenshooter --render-previews /tmp/previews   # оверлей и островок в PNG
+build/Screenshooter.app/Contents/MacOS/Screenshooter --render-windows /tmp/previews    # настройки и приветствие в PNG
+build/Screenshooter.app/Contents/MacOS/Screenshooter --render-editor /tmp/previews     # окно редактора в PNG
 open "screenshooter://diagnostics"        # ~/Library/Application Support/Screenshooter/diagnostics.txt
 /usr/bin/log stream --predicate 'subsystem == "com.screenshooter.app"'
 ```
