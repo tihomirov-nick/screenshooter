@@ -1,10 +1,10 @@
 import AppKit
 import QuartzCore
 
-/// The menu bar icon: the app icon's view down a gun barrel, in lines. The ring of the muzzle, three grooves of the
-/// rifling turning in, and the far end of the bore as a small ring. It is drawn in code as a template image and stands
-/// level with FaceID's icon next to it: the same square status item, a glyph as big as FaceID's (14.3 pt across, which a
-/// Retina menu bar shows as 14.5 pt) with its centre where FaceID's sits, and the same line width.
+/// The menu bar icon: the app icon in thin lines. The ring of the muzzle, a ring round the empty bore in the centre and six
+/// spiral groove lines running from one ring to the other, all one width. It is drawn in code as a template image and
+/// stands level with FaceID's icon next to it: the same square status item, a glyph as big as FaceID's (14.3 pt across,
+/// which a Retina menu bar shows as 14.5 pt) with its centre where FaceID's sits, in lines half as thick as FaceID's.
 ///
 /// It moves only at moments that matter and for well under a second: the rifling turns when a capture is taken, as if
 /// the barrel rotated, the icon bounces lightly when something lands on the shelf, and the rifling pulses softly while a
@@ -13,9 +13,11 @@ import QuartzCore
 final class StatusIcon {
     static let shared = StatusIcon()
 
-    /// The line width of FaceID's menu bar icon, measured on the SF Symbol it draws (faceid, 15 pt, regular). One place
-    /// to follow it when FaceID's icon changes.
-    nonisolated static let lineWidth: CGFloat = 1.18
+    /// One width for both rings and the grooves, about half of FaceID's 1.18 pt: on a Retina screen six grooves of
+    /// this width stay apart and keep an even weight.
+    nonisolated static let lineWidth: CGFloat = 0.6
+    /// The groove lines, as many as on the app icon.
+    nonisolated static let grooves = 6
     /// The glyph across, outer edge to outer edge: FaceID's glyph is as wide and as high.
     nonisolated static let diameter: CGFloat = 14.31
     /// The canvas, with room above the glyph for the bounce.
@@ -103,11 +105,11 @@ final class StatusIcon {
         }
     }
 
-    /// How far the rifling has turned over the motion, t from 0 to 1: a third of a turn, from one groove to the next,
-    /// slow at both ends, so it starts and stops on the icon at rest.
+    /// How far the rifling has turned over the motion, t from 0 to 1: from one groove to the next, slow at both ends, so it
+    /// starts and stops on the icon at rest.
     static func turn(_ t: Double) -> CGFloat {
         let eased = t * t * (3 - 2 * t)
-        return CGFloat(eased) * 2 * .pi / 3
+        return CGFloat(eased) * 2 * .pi / CGFloat(grooves)
     }
 
     /// How opaque the rifling is while a capture is in progress: down to half and back, every 1.2 s.
@@ -122,13 +124,19 @@ final class StatusIcon {
         return 0
     }
 
-    /// `turn` rotates the rifling (radians), `lift` raises the whole icon, `rifling` is the opacity of the grooves and
-    /// of the far end of the bore.
+    /// `turn` rotates the rifling (radians), `lift` raises the whole icon, `rifling` is the opacity of the grooves.
     static func image(turn: CGFloat = 0, lift: CGFloat = 0, rifling: CGFloat = 1) -> NSImage {
         let image = NSImage(size: canvas, flipped: true) { _ in
             let c = NSPoint(x: center.x, y: center.y - lift)
             let muzzle = (diameter - lineWidth) / 2
-            let bore: CGFloat = 2.2
+            // The ring round the bore: the hole inside it has a radius of 2.8 pt, big enough that next to the ring the
+            // gaps between six grooves stay 1.5 px wide on a Retina screen.
+            let bore = 2.8 + lineWidth / 2
+            // The grooves follow the app icon's spirals: 67° to the radius in the middle, easing towards both rings until
+            // they meet them at 12° to the tangent, so they branch off the rings instead of cutting into them.
+            let twist: CGFloat = 2.4, twistAtRing = 1 / tan(12 * CGFloat.pi / 180)
+            func ease(_ x: CGFloat) -> CGFloat { let t = min(max(x, 0), 1); return t * t * t * (t * (t * 6 - 15) + 10) }
+            let span = log(muzzle / bore)
             func stroke(_ path: NSBezierPath, opacity: CGFloat) {
                 NSColor.black.withAlphaComponent(opacity).setStroke()
                 path.lineWidth = lineWidth
@@ -136,20 +144,26 @@ final class StatusIcon {
                 path.lineJoinStyle = .round
                 path.stroke()
             }
-            stroke(NSBezierPath(ovalIn: NSRect(x: c.x - muzzle, y: c.y - muzzle, width: 2 * muzzle, height: 2 * muzzle)), opacity: 1)
-            // The rifling: three logarithmic spirals from the muzzle to the far end of the bore, turning faster deeper in.
-            let grooves = NSBezierPath()
-            for k in 0..<3 {
-                let start = CGFloat(k) * 2 * .pi / 3 - .pi / 2 + turn
-                for i in 0...48 {
-                    let f = CGFloat(i) / 48
-                    let r = muzzle * pow(bore / muzzle, f), a = start + 2.0 * f
+            let rings = NSBezierPath(ovalIn: NSRect(x: c.x - muzzle, y: c.y - muzzle, width: 2 * muzzle, height: 2 * muzzle))
+            rings.appendOval(in: NSRect(x: c.x - bore, y: c.y - bore, width: 2 * bore, height: 2 * bore))
+            stroke(rings, opacity: 1)
+            // The rifling: logarithmic spirals from the middle of one ring to the middle of the other; their ends stay
+            // within the rings' strokes.
+            let lines = NSBezierPath()
+            for k in 0..<grooves {
+                var a = CGFloat(k) * 2 * .pi / CGFloat(grooves) - .pi / 2 + turn
+                for i in 0...96 {
+                    if i > 0 {
+                        let t = (CGFloat(i) - 0.5) / 96
+                        let bend = max(1 - ease(t / 0.13), 1 - ease((1 - t) / 0.25))
+                        a += (twist + (twistAtRing - twist) * bend) * span / 96
+                    }
+                    let r = muzzle * exp(-span * CGFloat(i) / 96)
                     let point = NSPoint(x: c.x + r * cos(a), y: c.y + r * sin(a))
-                    if i == 0 { grooves.move(to: point) } else { grooves.line(to: point) }
+                    if i == 0 { lines.move(to: point) } else { lines.line(to: point) }
                 }
             }
-            grooves.appendOval(in: NSRect(x: c.x - bore, y: c.y - bore, width: 2 * bore, height: 2 * bore))
-            stroke(grooves, opacity: rifling)
+            stroke(lines, opacity: rifling)
             return true
         }
         image.isTemplate = true

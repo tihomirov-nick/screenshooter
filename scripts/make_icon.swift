@@ -2,65 +2,150 @@
 // and Resources/AppIcon-1024.png (the whole icon, for the README).
 // Usage: swift scripts/make_icon.swift
 //
-// Screen + shooter: the view straight down a gun barrel, the rifling turning inside it, like the gun barrel opening of
-// the Bond films. Only the muzzle and the rifling, no gun. Flat, black and white, like the other apps of the family:
-// a pure black body and white marks, flat fills only, with no gradients, glass or shadows. The one grey (white at
-// 45 % over the black body) gives depth. The mark is the muzzle ring, about as heavy as the family's marks (80 px; the
-// pills of the other icons are 84), rings of the bore in grey shrinking into the dark, and five grooves turning in
-// across them. The grooves are logarithmic spirals that narrow with depth, as down a tunnel; they leave the muzzle
-// from under the ring and end short of the centre, which stays dark.
+// Screen + shooter: the view down a rifled gun barrel, like the gun barrel opening of the Bond films, and only the
+// barrel: no figure in the bore, no gun. Flat and strictly black and white, like the other apps of the family: a black
+// body and white marks, with no greys, gradients or shadows. Two white rings, the muzzle outside and the edge of the bore
+// inside, and six spiral lines running from one ring to the other, all of one width. The hole inside the inner ring is
+// left black. The lines are logarithmic spirals, so the gaps between them close in towards the bore as down a tunnel:
+// that is all the perspective there is. The outer ring keeps a black border round the body clear.
+//
+// Where a line meets a ring it branches off it instead of cutting into it. Over the last part of its length at each end
+// the line turns from 23° to the ring's tangent to 12°, smoothly, so the bend at the join is mild. Then the whole white
+// shape gets a morphological closing with a disc of 10 px (0.3 of the line width) on a 4096 grid: the narrow tip of the
+// black wedge between a line and a ring becomes round, nothing else changes. Bigger discs fill whole ends of the black
+// spaces between the lines.
 import AppKit
 
 let bodyColor: (red: CGFloat, green: CGFloat, blue: CGFloat) = (0, 0, 0)
 
-/// The mark, drawn with the current (white) colours in the flat drawing's coordinates: a 1024 square whose body is the
-/// squircle at 100...924, y growing upwards.
-func drawMark(_ ctx: CGContext) {
-    let center = CGPoint(x: 512, y: 512)
-    func ring(radius: CGFloat, width: CGFloat) {
-        ctx.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: 2 * radius, height: 2 * radius))
-        ctx.setLineWidth(width)
-        ctx.strokePath()
-    }
-    /// A groove: a logarithmic spiral from radius `outer` in to `inner`, turning by `twist` radians on the way, its
-    /// width shrinking with the radius as if seen down a tunnel; filled, with a round inner end.
-    func groove(start: CGFloat, outer: CGFloat, inner: CGFloat, twist: CGFloat, width: CGFloat) {
-        func point(_ f: CGFloat) -> (CGPoint, CGFloat) {
-            let r = outer * pow(inner / outer, f), a = start + twist * f
-            return (CGPoint(x: center.x + r * cos(a), y: center.y + r * sin(a)), r)
-        }
-        var left: [CGPoint] = [], right: [CGPoint] = []
-        let steps = 120
-        for i in 0...steps {
-            let f = CGFloat(i) / CGFloat(steps)
-            let (p, r) = point(f)
-            let (ahead, _) = point(min(1, f + 0.001)), (behind, _) = point(max(0, f - 0.001))
-            let length = hypot(ahead.x - behind.x, ahead.y - behind.y)
-            let normal = CGPoint(x: -(ahead.y - behind.y) / length, y: (ahead.x - behind.x) / length)
-            let half = width * r / outer / 2
-            left.append(CGPoint(x: p.x + normal.x * half, y: p.y + normal.y * half))
-            right.append(CGPoint(x: p.x - normal.x * half, y: p.y - normal.y * half))
-        }
-        ctx.move(to: left[0])
-        for p in left.dropFirst() + right.reversed() { ctx.addLine(to: p) }
-        ctx.closePath()
-        ctx.fillPath()
-        let (end, r) = point(1)
-        let half = width * r / outer / 2
-        ctx.fillEllipse(in: CGRect(x: end.x - half, y: end.y - half, width: 2 * half, height: 2 * half))
-    }
+/// Sizes in half-bodies (412 px of the 1024 icon) from the centre.
+let barrelWidth = 0.08              // 33 px for the rings and the lines alike: lines stay apart in a 32 px icon
+let barrelMouth = 0.85              // outer edge of the outer ring, leaving a black border of 62 px at the sides
+let barrelHole = 0.34               // inner edge of the inner ring: the black hole
+let barrelGrid = 4096               // pixels across the body for the closing
 
-    // The muzzle takes about three quarters of the body, as wide as the other icons' marks look.
-    ring(radius: 262, width: 80)
-    // The bore in perspective: rings closer and thinner the deeper they are, in grey.
-    ctx.saveGState()
-    ctx.setAlpha(0.45)
-    for (radius, width) in [(176.0, 26.0), (112.0, 18.0), (72.0, 12.0)] { ring(radius: radius, width: width) }
-    ctx.restoreGState()
-    // Five grooves, broad enough to show at 32 px.
-    for k in 0..<5 {
-        groove(start: CGFloat(k) * 2 * .pi / 5 + 0.2, outer: 262, inner: 30, twist: 2.0, width: 84)
+/// The middle line of one spiral, from the outer ring's middle to the inner one's. In the middle the spiral keeps the
+/// angle of a logarithmic spiral (67° to the radius, as when it wound 0.35 of a turn from the mouth to the hole); towards
+/// both ends the angle to the ring's tangent eases down to 12° along a smootherstep, over about 18 % of the length.
+func barrelSpiral(start: Double, steps: Int = 2000) -> [(Double, Double)] {
+    let outer = barrelMouth - barrelWidth / 2, inner = barrelHole + barrelWidth / 2
+    let kMid = 0.35 * 2 * .pi / log(barrelMouth / barrelHole), kEnd = 1 / tan(12 * Double.pi / 180)
+    let zoneOut = 0.13, zoneIn = 0.25       // shares of the log radius: each about 18 % of the length
+    func ease(_ x: Double) -> Double { let t = min(max(x, 0), 1); return t * t * t * (t * (t * 6 - 15) + 10) }
+    let span = log(outer / inner)
+    var theta = start + kMid * log(barrelMouth / outer)
+    var points = [(outer * cos(theta), outer * sin(theta))]
+    for i in 1...steps {
+        let t = (Double(i) - 0.5) / Double(steps)
+        let bend = max(1 - ease(t / zoneOut), 1 - ease((1 - t) / zoneIn))
+        theta += (kMid + (kEnd - kMid) * bend) * span / Double(steps)
+        let r = outer * exp(-span * Double(i) / Double(steps))
+        points.append((r * cos(theta), r * sin(theta)))
     }
+    return points
+}
+
+/// Squared Euclidean distance transform of an n × n grid in place (Felzenszwalb and Huttenlocher): 0 at the feature
+/// pixels, a huge value elsewhere on input; the squared distance to the nearest feature pixel on output.
+func distanceTransform(_ grid: UnsafeMutableBufferPointer<Double>, _ n: Int) {
+    let f = UnsafeMutableBufferPointer<Double>.allocate(capacity: n), d = UnsafeMutableBufferPointer<Double>.allocate(capacity: n)
+    let v = UnsafeMutableBufferPointer<Int>.allocate(capacity: n), z = UnsafeMutableBufferPointer<Double>.allocate(capacity: n + 1)
+    defer { f.deallocate(); d.deallocate(); v.deallocate(); z.deallocate() }
+    func pass() {
+        var k = 0
+        v[0] = 0; z[0] = -1e20; z[1] = 1e20
+        for q in 1..<n {
+            var s = ((f[q] + Double(q * q)) - (f[v[k]] + Double(v[k] * v[k]))) / Double(2 * (q - v[k]))
+            while s <= z[k] {
+                k -= 1
+                s = ((f[q] + Double(q * q)) - (f[v[k]] + Double(v[k] * v[k]))) / Double(2 * (q - v[k]))
+            }
+            k += 1
+            v[k] = q; z[k] = s; z[k + 1] = 1e20
+        }
+        k = 0
+        for q in 0..<n {
+            while z[k + 1] < Double(q) { k += 1 }
+            d[q] = Double((q - v[k]) * (q - v[k])) + f[v[k]]
+        }
+    }
+    for x in 0..<n {
+        for y in 0..<n { f[y] = grid[y * n + x] }
+        pass()
+        for y in 0..<n { grid[y * n + x] = d[y] }
+    }
+    for y in 0..<n {
+        for x in 0..<n { f[x] = grid[y * n + x] }
+        pass()
+        for x in 0..<n { grid[y * n + x] = d[x] }
+    }
+}
+
+/// The signed distance, in grid pixels and positive inside, to the edge of the white shape after the closing; the grid
+/// covers the body square, row 0 at the top. Made once.
+let barrelField: [Double] = {
+    let n = barrelGrid, unit = Double(n) / 2
+    let ctx = CGContext(data: nil, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n, space: CGColorSpaceCreateDeviceGray(),
+                        bitmapInfo: CGImageAlphaInfo.none.rawValue)!
+    func point(_ p: (Double, Double)) -> CGPoint { CGPoint(x: unit + unit * p.0, y: unit + unit * p.1) }
+    let path = CGMutablePath()
+    for r in [barrelMouth - barrelWidth / 2, barrelHole + barrelWidth / 2] {
+        path.addEllipse(in: CGRect(x: unit - unit * r, y: unit - unit * r, width: 2 * unit * r, height: 2 * unit * r))
+    }
+    // The lines' flat ends lie within the rings' strokes.
+    for line in 0..<6 {
+        let points = barrelSpiral(start: Double(line) * .pi / 3 + .pi / 2)
+        path.move(to: point(points[0]))
+        for p in points.dropFirst() { path.addLine(to: point(p)) }
+    }
+    ctx.addPath(path)
+    ctx.setStrokeColor(gray: 1, alpha: 1)
+    ctx.setLineWidth(barrelWidth * unit)
+    ctx.setLineCap(.butt)
+    ctx.setLineJoin(.round)
+    ctx.strokePath()
+    let pixels = ctx.data!.bindMemory(to: UInt8.self, capacity: n * n)
+    let radius = 0.3 * barrelWidth * unit
+    // Dilation: everything within the radius of the white. Erosion of that: what stays the radius away from its outside.
+    let toWhite = UnsafeMutableBufferPointer<Double>.allocate(capacity: n * n)
+    let toOutside = UnsafeMutableBufferPointer<Double>.allocate(capacity: n * n)
+    defer { toWhite.deallocate(); toOutside.deallocate() }
+    for i in 0..<(n * n) { toWhite[i] = pixels[i] >= 128 ? 0 : 1e20 }
+    distanceTransform(toWhite, n)
+    for i in 0..<(n * n) { toOutside[i] = toWhite[i] <= radius * radius ? 1e20 : 0 }
+    distanceTransform(toOutside, n)
+    var field = [Double](repeating: 0, count: n * n)
+    for i in 0..<(n * n) {
+        field[i] = toOutside[i] > 0 ? toOutside[i].squareRoot() - radius : -toWhite[i].squareRoot()
+    }
+    return field
+}()
+
+/// The mark, drawn with the current (white) colours in the flat drawing's coordinates: a 1024 square whose body is the
+/// squircle at 100...924, y growing upwards. The edge comes from the distance field, sampled once per device pixel.
+func drawMark(_ ctx: CGContext) {
+    let n = barrelGrid
+    let side = Int((824 * ctx.ctm.a).rounded())                 // device pixels across the body
+    let gridPerPixel = Double(n) / Double(side)
+    var rgba = [UInt8](repeating: 0, count: side * side * 4)
+    for j in 0..<side {
+        for i in 0..<side {
+            // Bilinear sample of the field at the pixel's centre.
+            let gx = min(max((Double(i) + 0.5) * gridPerPixel - 0.5, 0), Double(n - 1))
+            let gy = min(max((Double(j) + 0.5) * gridPerPixel - 0.5, 0), Double(n - 1))
+            let x0 = Int(gx), y0 = Int(gy), x1 = min(x0 + 1, n - 1), y1 = min(y0 + 1, n - 1)
+            let ax = gx - Double(x0), ay = gy - Double(y0)
+            let top = barrelField[y0 * n + x0] * (1 - ax) + barrelField[y0 * n + x1] * ax
+            let bottom = barrelField[y1 * n + x0] * (1 - ax) + barrelField[y1 * n + x1] * ax
+            let coverage = min(max(0.5 + (top * (1 - ay) + bottom * ay) / gridPerPixel, 0), 1)
+            let value = UInt8(coverage * 255 + 0.5)
+            let o = (j * side + i) * 4
+            rgba[o] = value; rgba[o + 1] = value; rgba[o + 2] = value; rgba[o + 3] = value
+        }
+    }
+    let bitmap = CGContext(data: &rgba, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                           space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.draw(bitmap.makeImage()!, in: CGRect(x: 100, y: 100, width: 824, height: 824))
 }
 
 // MARK: - The icon files (the same in every app of the family)

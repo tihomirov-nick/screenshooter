@@ -9,8 +9,8 @@ notch, from where you can drag it into any app.
 INSTALLING
 1. Drag the Screenshooter icon onto the Applications folder next to it.
 2. Open the Applications folder in Finder and launch Screenshooter.
-   The app has no main window. It works in the menu bar (an icon of a rifled
-   gun barrel seen from the front) and in the notch.
+   The app has no main window. It works in the menu bar (an icon of two rings
+   with spiral lines between them, like a rifled gun barrel) and in the notch.
 
 IF macOS WON'T OPEN THE APP
 The app isn't notarized by Apple, so macOS may show a warning the first time.
