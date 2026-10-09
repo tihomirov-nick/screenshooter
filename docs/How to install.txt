@@ -59,3 +59,11 @@ notch.
 
 Shortcuts, the screenshots folder and everything else can be changed in the
 settings: click the menu bar icon and choose "Settings…".
+
+UPDATES AND OPENING AT LOGIN
+Screenshooter opens at login and installs new versions by itself. It checks
+for them at launch and then every three hours, downloads them in the
+background and restarts when you aren't taking a screenshot and the editor
+has no unsaved changes. Both can be turned off in the settings, on the
+General tab: "Open at login", "Check for updates" and "Install updates
+automatically".

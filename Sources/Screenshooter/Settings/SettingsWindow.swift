@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import ServiceManagement
 import ShotCore
 import SwiftUI
 
@@ -73,7 +72,9 @@ private struct GeneralSettings: View {
     @AppStorage(PrefKey.imageFormat) private var format = ImageFormat.png.rawValue
     @AppStorage(PrefKey.copyToClipboard) private var copyToClipboard = true
     @AppStorage(PrefKey.soundEffects) private var soundEffects = true
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @ObservedObject private var loginItem = Updater.LoginItem.shared
+    /// Read again whenever it may have changed: `needsApproval` is not published.
+    @State private var needsApproval = false
     @State private var language = Localization.selected
 
     var body: some View {
@@ -111,14 +112,18 @@ private struct GeneralSettings: View {
             UpdateSection()
 
             Section {
-                Toggle(L("Запускать при входе в систему"), isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { _, on in
-                        do {
-                            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-                        } catch {
-                            launchAtLogin = SMAppService.mainApp.status == .enabled
-                        }
+                Toggle(L("Запускать при входе в систему"), isOn: Binding(get: { loginItem.isEnabled }, set: { on in
+                    loginItem.set(on)
+                    needsApproval = loginItem.needsApproval
+                }))
+                if needsApproval {
+                    HStack {
+                        Text(L("Запуск при входе выключен в Системных настройках."))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button(L("Открыть «Объекты входа»")) { loginItem.openSystemSettings() }
                     }
+                }
                 Picker(L("Язык"), selection: $language) {
                     ForEach(AppLanguage.allCases) { Text($0.title).tag($0) }
                 }
@@ -135,6 +140,16 @@ private struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear(perform: refreshLoginItem)
+        // Back from System Settings.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshLoginItem()
+        }
+    }
+
+    private func refreshLoginItem() {
+        loginItem.refresh()
+        needsApproval = loginItem.needsApproval
     }
 
     private var folderName: String {
@@ -159,15 +174,21 @@ private struct GeneralSettings: View {
     }
 }
 
-/// The version, automatic checks and a check on request; the island offers what is found.
+/// The version, automatic checks and installation, a check on request; the island offers what is not installed by itself.
 private struct UpdateSection: View {
     @ObservedObject private var updater = Updater.shared
 
     var body: some View {
         Section {
-            Toggle(L("Проверять обновления"), isOn: Binding(get: { updater.automaticChecks },
-                                                            set: { updater.automaticChecks = $0 }))
-                .help(L("Раз в сутки Screenshooter смотрит, нет ли новой версии, и предлагает её в островке."))
+            Toggle(isOn: Binding(get: { updater.automaticChecks }, set: { updater.automaticChecks = $0 })) {
+                Text(L("Проверять обновления"))
+                Text(L("Сразу после запуска и потом каждые три часа."))
+            }
+            Toggle(isOn: Binding(get: { updater.automaticInstall }, set: { updater.automaticInstall = $0 })) {
+                Text(L("Обновлять автоматически"))
+                Text(L("Новая версия ставится сама, когда Screenshooter ничем не занят. Если выключить, она появится в островке с кнопкой «Обновить»."))
+            }
+            .disabled(!updater.automaticChecks)
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L("Версия %@", updater.currentVersion))
@@ -199,7 +220,10 @@ private struct UpdateSection: View {
 
     private var status: String? {
         switch updater.state {
-        case .idle: return nil
+        case .idle:
+            guard let update = updater.automaticUpdate else { return nil }
+            return update.ready ? L("Версия %@ установится, когда Screenshooter освободится", update.release.version)
+                                : L("Скачивается версия %@", update.release.version)
         case .checking: return L("Проверка…")
         case .upToDate: return L("Установлена последняя версия")
         case .available(let release): return L("Доступна версия %@", release.version)

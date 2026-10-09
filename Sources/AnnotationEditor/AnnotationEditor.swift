@@ -69,6 +69,12 @@ public enum AnnotationEditor {
         return true
     }
 
+    /// Some editor window has unsaved changes. Asks nothing and shows nothing (an update that installs itself waits
+    /// while this is true).
+    public static var hasUnsavedChanges: Bool {
+        controllers.values.contains { $0.model.isModified }
+    }
+
     /// For the app's quit handler: true when no editor window has unsaved changes. Otherwise brings the
     /// first such window to the front with its "save changes?" sheet and returns false; the app should
     /// cancel this quit (the person quits again after answering).

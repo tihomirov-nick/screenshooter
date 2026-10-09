@@ -27,6 +27,8 @@ final class IslandController: IslandDropTarget {
     private var toastWork: DispatchWorkItem?
     private var menuTracking = false
     private var draggingFromShelf = false
+    /// Drops whose files or text are still being copied onto the shelf.
+    private var receiving = 0
     /// The drag pasteboard's change count at the last mouse down. A drag that started since then wrote to
     /// it; a window or a text selection being dragged did not.
     private var dragCountAtMouseDown = 0
@@ -44,6 +46,16 @@ final class IslandController: IslandDropTarget {
     var windowIDs: Set<CGWindowID> {
         guard let number = panel?.windowNumber, number > 0 else { return [] }
         return [CGWindowID(number)]
+    }
+
+    /// The island is on screen (switched on in the settings).
+    var isRunning: Bool { panel != nil }
+
+    /// Something is being dragged onto the shelf or out of it, or a drop is still being copied in. A drag holds a mouse
+    /// button down: a flag left behind by a drag whose end never reached the island does not count.
+    var isMovingItems: Bool {
+        receiving > 0
+            || (NSEvent.pressedMouseButtons != 0 && (draggingFromShelf || model.dragOver || model.dropTargeted))
     }
 
     // MARK: - Lifecycle
@@ -188,8 +200,27 @@ final class IslandController: IslandDropTarget {
         }
         model.bannerText = text
         model.bannerSymbol = symbol
+        model.bannerActions = []
         setState(.banner, revertAfter: 1.9)
     }
+
+    /// A new version under the notch with its buttons. It stays a few seconds, and as long as the pointer is over it;
+    /// the open shelf shows the offer in its update row instead.
+    func offer(_ text: String, symbol: String, actions: [IslandUpdate.Action]) {
+        guard panel != nil, model.state != .open else { return }
+        model.bannerText = text
+        model.bannerSymbol = symbol
+        model.bannerActions = actions
+        setState(.banner, revertAfter: 8)
+    }
+
+    /// The offer under the notch is gone (installed, put off, skipped): so is its banner.
+    func withdrawOffer() {
+        if offersChoice { close() }
+    }
+
+    /// A banner with buttons is shown: pointing at it or clicking it does not open the shelf.
+    private var offersChoice: Bool { model.state == .banner && !model.bannerActions.isEmpty }
 
     func toggle() {
         model.state == .open ? close() : open(explicitly: true)
@@ -228,7 +259,14 @@ final class IslandController: IslandDropTarget {
         if let delay {
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.model.state == state else { return }
-                if self.isPointerOverIsland { self.open() } else { self.setState(.closed) }
+                if !self.isPointerOverIsland {
+                    self.setState(.closed)
+                } else if self.offersChoice {
+                    // The pointer is on its way to a button.
+                    self.setState(state, revertAfter: 2)
+                } else {
+                    self.open()
+                }
             }
             stateWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
@@ -263,6 +301,14 @@ final class IslandController: IslandDropTarget {
                       width: m.notchWidth + 16, height: m.notchHeight + 4)
     }
 
+    /// Where pointing or clicking opens the shelf: the camera housing, and what the island shows under it, except a
+    /// banner with buttons, which are there to be pressed.
+    private func opensShelf(at point: NSPoint) -> Bool {
+        if hotRect.contains(point) { return true }
+        guard model.state != .closed, !offersChoice else { return false }
+        return shapeRect(model.state).contains(point)
+    }
+
     /// Over the island, or over the camera housing while the island is closed in it.
     private var isPointerOverIsland: Bool {
         let mouse = NSEvent.mouseLocation
@@ -280,8 +326,7 @@ final class IslandController: IslandDropTarget {
             if model.state == .open {
                 // A click anywhere else puts the open shelf away.
                 if !shapeRect(.open).contains(mouse), !menuTracking { close() }
-            } else if event.type == .leftMouseDown,
-                      hotRect.contains(mouse) || (model.state != .closed && shapeRect(model.state).contains(mouse)) {
+            } else if event.type == .leftMouseDown, opensShelf(at: mouse) {
                 // A click on the notch or on a capture shown in it opens the shelf.
                 open()
             }
@@ -299,8 +344,7 @@ final class IslandController: IslandDropTarget {
 
         switch model.state {
         case .closed, .peek, .banner:
-            let inside = hotRect.contains(mouse) || (model.state != .closed && shapeRect(model.state).contains(mouse))
-            guard inside else {
+            guard opensShelf(at: mouse) else {
                 openWork?.cancel()
                 openWork = nil
                 return
@@ -311,9 +355,7 @@ final class IslandController: IslandDropTarget {
                 let work = DispatchWorkItem { [weak self] in
                     guard let self else { return }
                     self.openWork = nil
-                    let still = self.hotRect.contains(NSEvent.mouseLocation)
-                        || self.shapeRect(self.model.state).contains(NSEvent.mouseLocation)
-                    if still, NSEvent.pressedMouseButtons == 0 { self.open() }
+                    if self.opensShelf(at: NSEvent.mouseLocation), NSEvent.pressedMouseButtons == 0 { self.open() }
                 }
                 openWork = work
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
@@ -522,8 +564,10 @@ final class IslandController: IslandDropTarget {
         model.dropTargeted = false
         model.dragOver = false
         guard !draggingFromShelf, Shelf.canTake(info.draggingPasteboard) else { return false }
+        receiving += 1
         Shelf.shared.add(from: info.draggingPasteboard) { [weak self] items in
             guard let self else { return }
+            self.receiving -= 1
             if let first = items.first {
                 SoundEffects.play(.added)
                 StatusIcon.shared.play(.bounce)

@@ -43,11 +43,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// An editor with unsaved changes asks first. A capture in progress (an update relaunching the app, say) is
-    /// finished and saved before the app quits.
+    /// finished and saved before the app quits. A restart as the new version leaves the island a moment to say so.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard AnnotationEditor.reviewUnsavedChanges() else { return .terminateCancel }
-        guard CaptureController.shared.isBusy else { return .terminateNow }
-        CaptureController.shared.whenIdle { NSApp.reply(toApplicationShouldTerminate: true) }
+        let pause = Updates.restartPause
+        guard CaptureController.shared.isBusy || pause > 0 else { return .terminateNow }
+        CaptureController.shared.whenIdle {
+            DispatchQueue.main.asyncAfter(deadline: .now() + pause) { NSApp.reply(toApplicationShouldTerminate: true) }
+        }
         return .terminateLater
     }
 

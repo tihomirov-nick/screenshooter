@@ -202,7 +202,6 @@
   "Обновить": "Update",
   "Пропустить": "Skip",
   "Проверять обновления": "Check for updates",
-  "Раз в сутки Screenshooter смотрит, нет ли новой версии, и предлагает её в островке.": "Once a day Screenshooter looks for a new version and offers it in the island.",
   "Версия %@": "Version %@",
   "Проверить сейчас": "Check Now",
   "Эта копия собрана из исходников и сама не обновляется.": "This copy was built from the sources and doesn’t update itself.",
@@ -224,5 +223,13 @@
   "Папка снимков недоступна, снимок остался на полке. Выберите папку в настройках": "The screenshots folder is unavailable, so the screenshot stays on the shelf. Choose a folder in Settings",
   "Открыть установщик": "Open Installer",
   "Перетащите Screenshooter в папку «Программы»": "Drag Screenshooter into the Applications folder",
-  "Отсюда приложение не заменить. Перетащите Screenshooter в папку «Программы»": "The app can’t be replaced here. Drag Screenshooter into the Applications folder"
+  "Отсюда приложение не заменить. Перетащите Screenshooter в папку «Программы»": "The app can’t be replaced here. Drag Screenshooter into the Applications folder",
+  "Обновляюсь до версии %@…": "Updating to version %@…",
+  "Запуск при входе выключен в Системных настройках.": "Opening at login is turned off in System Settings.",
+  "Открыть «Объекты входа»": "Open Login Items",
+  "Сразу после запуска и потом каждые три часа.": "Right after launch, then every three hours.",
+  "Обновлять автоматически": "Install updates automatically",
+  "Новая версия ставится сама, когда Screenshooter ничем не занят. Если выключить, она появится в островке с кнопкой «Обновить».": "A new version installs itself when Screenshooter isn’t busy. Turned off, it shows up in the island with an “Update” button.",
+  "Версия %@ установится, когда Screenshooter освободится": "Version %@ will install once Screenshooter is free",
+  "Скачивается версия %@": "Downloading version %@"
 }

@@ -150,7 +150,7 @@ struct IslandRootView: View {
                 .frame(width: size.width, height: size.height)
                 .transition(swap(size))
         case .banner:
-            BannerContent(model: model)
+            BannerContent(model: model, act: actions.update)
                 .frame(width: size.width, height: size.height)
                 .transition(swap(size))
         case .open:
@@ -371,24 +371,38 @@ private struct PeekPreview: View {
 
 // MARK: - Banner
 
-/// A short message under the notch, in the middle; a long one wraps onto a second line.
+/// A short message under the notch, in the middle; a long one wraps onto a second line. A new version has its buttons
+/// on the same line, after the text.
 private struct BannerContent: View {
     let model: IslandModel
+    let act: (UpdateCommand) -> Void
 
     var body: some View {
         let m = model.metrics, layout = model.bannerLayout
         VStack(spacing: 0) {
             Color.clear.frame(height: m.notchHeight + IslandMetrics.rowGap)
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Image(systemName: model.bannerSymbol)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(IslandStyle.tint(for: model.bannerSymbol))
-                Text(model.bannerText)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: IslandMetrics.bannerButtonGap) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: model.bannerSymbol)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(IslandStyle.tint(for: model.bannerSymbol))
+                    Text(model.bannerText)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(model.bannerActions.isEmpty ? 2 : 1)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !model.bannerActions.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(model.bannerActions, id: \.title) { action in
+                            Button(action.title) { act(action.command) }
+                                .buttonStyle(IslandButtonStyle(kind: action.kind))
+                                .help(action.help ?? "")
+                        }
+                    }
+                    .fixedSize()
+                }
             }
             .islandProbe("banner")
             .frame(height: layout.textHeight)
@@ -951,7 +965,7 @@ private struct IslandButtonBody: View {
             .foregroundStyle(foreground)
             .lineLimit(1)
             .padding(.horizontal, kind == .plain ? 4 : 12)
-            .frame(height: 24)
+            .frame(height: IslandMetrics.buttonHeight)
             .background(Capsule().fill(background(pressed: pressed)))
             .contentShape(Capsule())
             .scaleEffect(reduceMotion ? 1 : (pressed ? 0.95 : 1))

@@ -80,10 +80,10 @@ extension PreviewRenderer {
         update: { _ in })
 
     static let sampleUpdate = Updater.Release(
-        version: "1.2.3", title: "Screenshooter 1.2.3",
+        version: "1.2.4", title: "Screenshooter 1.2.4",
         notes: "## Что нового\n- Островок раскрывается из центра выреза\n- Новый знак на полке и в строке меню",
-        page: URL(string: "https://github.com/tihomirov-nick/screenshooter/releases/tag/v1.2.3")!,
-        dmg: URL(string: "https://example.com/Screenshooter-1.2.3.dmg")!, size: 4_200_000)
+        page: URL(string: "https://github.com/tihomirov-nick/screenshooter/releases/tag/v1.2.4")!,
+        dmg: URL(string: "https://example.com/Screenshooter-1.2.4.dmg")!, size: 4_200_000)
 
     private static func islandSamples() -> [IslandSample] {
         let s = SampleShelf()
@@ -114,8 +114,13 @@ extension PreviewRenderer {
             IslandSample(name: "banner-ok", label: "Баннер: успех", state: .banner, shelf: five) {
                 $0.bannerText = L("Установлена последняя версия"); $0.bannerSymbol = "checkmark.circle.fill"
             },
-            IslandSample(name: "banner-update", label: "Баннер: новая версия", state: .banner, shelf: five) {
-                $0.bannerText = L("Доступна версия %@", "1.2.3"); $0.bannerSymbol = "arrow.down.circle.fill"
+            IslandSample(name: "banner-offer", label: "Баннер: новая версия с кнопками", state: .banner, shelf: five) {
+                $0.bannerText = L("Доступна версия %@", sampleUpdate.version); $0.bannerSymbol = "arrow.down.circle.fill"
+                $0.bannerActions = [IslandUpdate.Action(title: L("Позже"), command: .later, kind: .secondary),
+                                    IslandUpdate.Action(title: L("Обновить"), command: .install, kind: .primary)]
+            },
+            IslandSample(name: "banner-restart", label: "Баннер: перезапуск для обновления", state: .banner, shelf: five) {
+                $0.bannerText = L("Обновляюсь до версии %@…", sampleUpdate.version); $0.bannerSymbol = "arrow.down.circle.fill"
             },
             IslandSample(name: "banner-error", label: "Баннер: короткая ошибка", state: .banner, shelf: five) {
                 $0.bannerText = L("Окно уже закрыто"); $0.bannerSymbol = "exclamationmark.triangle.fill"

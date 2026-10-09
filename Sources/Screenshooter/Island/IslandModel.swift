@@ -41,6 +41,10 @@ struct IslandMetrics: Equatable {
     static let wing: CGFloat = 48
     static let maxOpenWidth: CGFloat = 640
     static let maxBannerWidth: CGFloat = 440
+    /// The text buttons of the update row and the banner.
+    static let buttonHeight: CGFloat = 24
+    /// Between the banner's text and its buttons.
+    static let bannerButtonGap: CGFloat = 16
     /// How much the island grows while something is dragged over it: barely noticeable.
     static let dragGrowth: CGFloat = 0.025
     static let openRadius: CGFloat = 28
@@ -90,6 +94,8 @@ final class IslandModel {
     var peekItemID: UUID?
     var bannerText = ""
     var bannerSymbol = "checkmark.circle.fill"
+    /// Buttons after the banner's text, on the same line (a new version: "Позже", "Обновить").
+    var bannerActions: [IslandUpdate.Action] = []
     /// Files or text the shelf can take are dragged over it.
     var dropTargeted = false
     /// Something is dragged over the island, into the shelf or out of it: the island grows a little.
@@ -174,14 +180,20 @@ final class IslandModel {
         return buttons * 28 + (buttons - 1) * 4
     }
 
-    /// The banner's width and text height: as wide as its one line of text, up to `maxBannerWidth`; a longer text
-    /// wraps onto a second line.
+    /// The banner's width and the height of its line: as wide as its one line of text, up to `maxBannerWidth`; a longer
+    /// text wraps onto a second line. Buttons follow the text on its line, 16 pt after it, and the line is as high as they
+    /// are.
     var bannerLayout: (width: CGFloat, textHeight: CGFloat, lines: Int) {
         let p = IslandMetrics.padding
         let icon = IslandText.symbolWidth(bannerSymbol, size: 13, weight: .semibold) + 6
         let text = IslandText.width(bannerText, size: 13, weight: .medium)
         let lineHeight: CGFloat = 16
         let minimum = metrics.notchWidth + 2 * 24
+        if !bannerActions.isEmpty {
+            let buttons = bannerActions.map(IslandUpdate.buttonWidth).reduce(0, +) + CGFloat(bannerActions.count - 1) * 8
+            let width = icon + text + IslandMetrics.bannerButtonGap + buttons + 2 * p
+            return (min(IslandMetrics.maxBannerWidth, max(minimum, ceil(width))), IslandMetrics.buttonHeight, 1)
+        }
         let room = IslandMetrics.maxBannerWidth - 2 * p - icon
         if text <= room {
             return (max(minimum, ceil(text + icon + 2 * p)), lineHeight, 1)
