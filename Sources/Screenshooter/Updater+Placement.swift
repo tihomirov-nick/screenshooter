@@ -357,17 +357,61 @@ extension Updater {
         return path.hasPrefix("/Volumes/") || folders.contains { path.hasPrefix("\(home)/\($0)/") }
     }
 
-    /// The restart: arguments for /bin/sh that wait for process `pid` to end, open `app`, then detach the disk image at
-    /// `image` (a few tries: the system may hold it for a moment).
-    nonisolated static func relaunchArguments(pid: Int32, app: URL, detaching image: URL?,
+    /// The restart: arguments for /bin/sh that wait for process `pid` to end, open `app` (when there is one), then detach
+    /// the disk image at `image` (a few tries: the system may hold it for a moment).
+    nonisolated static func relaunchArguments(pid: Int32, app: URL?, detaching image: URL?,
                                               open: String = "/usr/bin/open", hdiutil: String = "/usr/bin/hdiutil") -> [String] {
         let script = """
             while kill -0 "$0" 2>/dev/null; do sleep 0.1; done
-            "$3" "$1"
+            [ -z "$1" ] || "$3" "$1"
             [ -n "$2" ] || exit 0
             for attempt in 1 2 3 4 5 6 7 8 9 10; do "$4" detach "$2" -quiet && exit 0; sleep 1; done
             """
-        return ["-c", script, String(pid), app.path, image?.path ?? "", open, hdiutil]
+        return ["-c", script, String(pid), app?.path ?? "", image?.path ?? "", open, hdiutil]
+    }
+
+    // MARK: Other running copies
+
+    /// How long the other copies get to quit when asked: time to answer a question about unsaved work or an export.
+    nonisolated static let othersTimeout: TimeInterval = 30
+
+    /// The other running copies of this app, wherever they run from; never this process.
+    static func otherCopies() -> [NSRunningApplication] {
+        guard let id = Bundle.main.bundleIdentifier else { return [] }
+        let me = ProcessInfo.processInfo.processIdentifier
+        return NSRunningApplication.runningApplications(withBundleIdentifier: id).filter { $0.processIdentifier != me && isRunning($0) }
+    }
+
+    /// Asks the copies to quit the way the user quits them: each one's delegate may ask a question, make the quit wait or
+    /// refuse it. Waits up to `timeout` for them to be gone and returns those still running. Nothing is ever forced: a
+    /// copy that takes longer counts as one that stayed, and nothing is replaced under it.
+    static func askToQuit(_ copies: [NSRunningApplication], timeout: TimeInterval = othersTimeout) async -> [NSRunningApplication] {
+        var waiting: [NSRunningApplication] = []
+        for copy in copies {
+            log("Asking \(copy.bundleURL?.path ?? "another copy") (pid \(copy.processIdentifier)) to quit")
+            // In front first, so that a question it asks is seen.
+            bringToFront(copy)
+            if copy.terminate() { waiting.append(copy) } else { log("pid \(copy.processIdentifier) cannot be asked to quit") }
+        }
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while waiting.contains(where: isRunning), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        let stayed = copies.filter(isRunning)
+        for copy in stayed { log("pid \(copy.processIdentifier) stayed open") }
+        return stayed
+    }
+
+    /// Not gone: AppKit has not seen it end, and the process is there.
+    nonisolated static func isRunning(_ app: NSRunningApplication) -> Bool {
+        !app.isTerminated && (kill(app.processIdentifier, 0) == 0 || errno == EPERM)
+    }
+
+    /// Brings the copy to the front as it is: activation without a reopen, so it opens no window it would show when
+    /// started again.
+    static func bringToFront(_ app: NSRunningApplication) {
+        if #available(macOS 14, *) { NSApp.yieldActivation(to: app) }
+        app.activate(options: [])
     }
 
     // MARK: Handoff between copies
