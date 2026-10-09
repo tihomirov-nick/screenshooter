@@ -200,14 +200,14 @@ struct IslandToast: Equatable {
     }
 }
 
-/// The app's mark in the island: the menu bar glyph's rings and grooves, in lines that hold their own next to 13 pt
-/// text and symbols.
+/// The app's mark in the island: the menu bar glyph, in lines that hold their own next to 13 pt semibold text and
+/// symbols.
 enum IslandMark {
     /// Before "Полка" in the header.
     static let titleSide: CGFloat = 16
     /// On the smart capture button, the size of the symbols beside it.
     static let buttonSide: CGFloat = 16
-    static let lineWidth: CGFloat = 1.1
+    static let lineWidth: CGFloat = 1.4
 }
 
 /// The update row: the state of the new version on the left, what can be done about it on the right. Worked out once

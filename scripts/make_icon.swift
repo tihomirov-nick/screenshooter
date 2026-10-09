@@ -2,174 +2,84 @@
 // and Resources/AppIcon-1024.png (the whole icon, for the README).
 // Usage: swift scripts/make_icon.swift
 //
-// The icon is the menu bar glyph drawn large, white on the black body. Screen + shooter: the view down a rifled gun
-// barrel, like the gun barrel opening of the Bond films, and only the barrel: no figure in the bore, no gun. Flat and
-// strictly black and white, like the other apps of the family: a black body and white marks, with no greys, gradients
-// or shadows. Two rings, the muzzle outside and the edge of the bore inside, and six logarithmic spirals running from
-// one ring to the other, all of one width. The hole inside the inner ring is left black. The outer ring keeps a black
-// border round the body clear.
-//
-// The drawing is StatusIcon's, line for line, only bigger: the same proportions of the rings and the hole, the same six
-// grooves and twist, the same gentle entry into the rings (towards both ends a groove eases from 23° to the ring's
-// tangent down to 12°) and the same width of line against the diameter, 4.2 %. The one addition is a light rounding of
-// the tips of the black wedges between a groove and a ring: in the menu bar they are far below a pixel, here the last
-// pixels of each tip would run out into a hairline.
+// The icon is the app's mark drawn large, white on the black body: flat and strictly black and white, like the other
+// apps of the family, with no greys, gradients or shadows. The mark is a selection: a frame of strokes with rounded
+// corners and a plus in place of its bottom right corner, in the proportions of the user's sample. The drawing is
+// StatusIcon.selectionPaths at rest and without the pixel grid, with one addition: the strokes' straight ends get
+// slightly rounded corners, as on the sample. The line is a tenth of the frame's side, as on the sample, a little
+// thicker than the corners of FaceID's icon, and the mark is about as big as FaceID's face, its box in the middle of
+// the body.
 import AppKit
 
 let bodyColor: (red: CGFloat, green: CGFloat, blue: CGFloat) = (0, 0, 0)
 
 // MARK: - The mark
 
-// These numbers must stay equal to StatusIcon's (Sources/Screenshooter/App/StatusIcon.swift), and markPaths below is a
-// copy of StatusIcon.markPaths: change them together, or the icon and the menu bar glyph stop being one drawing.
-let glyphDiameter: CGFloat = 14.31      // StatusIcon.diameter
-let glyphLineWidth: CGFloat = 0.6       // StatusIcon.lineWidth
-let glyphGrooves = 6                    // StatusIcon.grooves
+// StatusIcon.Selection, number for number, and selectionPaths below is a copy of StatusIcon.selectionPaths: change them
+// together, or the icon and the menu bar glyph stop being one drawing.
+let selectionArm: CGFloat = 0.283       // StatusIcon.Selection.arm
+let selectionGap: CGFloat = 0.102       // StatusIcon.Selection.gap
+let selectionReach: CGFloat = 0.243     // StatusIcon.Selection.reach
+let selectionRadius: CGFloat = 0.107    // StatusIcon.Selection.radius
+let selectionLine: CGFloat = 0.0997     // StatusIcon.Selection.line
 
-/// The glyph on the flat drawing, whose body is the 824 px square at 100...924 of 1024: the outer edge of the muzzle
-/// 350 px from the centre, which leaves a black border of 62 px at the sides.
-let markSide: CGFloat = 0.85 * 824                                  // 700.4 px across
-let markLineWidth = markSide * glyphLineWidth / glyphDiameter       // 29.4 px
-/// The rounding of the wedges' tips: the radius of a morphological closing, in line widths.
-let tipRounding: CGFloat = 0.15
+/// The selection on the flat drawing, whose body is the 824 px square at 100...924 of 1024: 547 px from the outer
+/// edges of the left and top lines to the plus's ends (680 px of the Icon Composer tile, about as much as FaceID's face
+/// and Subline's lines take), in lines of 42.2 px (52 px on the tile). Its box sits in the middle of the body.
+let selectionSide: CGFloat = 547
+let selectionLineWidth = selectionLine * selectionSide / (1 + selectionReach + selectionLine / 2)
+/// The corners of the strokes' ends: rounded by an eighth of the line.
+let endRounding: CGFloat = 0.125
 
-/// StatusIcon.markPaths, line for line (without `turn`): the mark in a square of `side` points with y growing down.
-/// Middle lines, to be stroked `lineWidth` wide with round caps and joins. Also returns the rings' radii and each
-/// groove's points, from the muzzle to the bore, for the rounding of the tips.
-func markPaths(side: CGFloat, lineWidth: CGFloat, grooves: Int = glyphGrooves)
-    -> (rings: CGPath, grooves: CGPath, muzzle: CGFloat, bore: CGFloat, points: [[CGPoint]]) {
-    let c = CGPoint(x: side / 2, y: side / 2)
-    let muzzle = (side - lineWidth) / 2
-    let bore = side / 2 * (2.8 / 7.155) + lineWidth / 2
-    let twist: CGFloat = 2.4, twistAtRing = 1 / tan(12 * CGFloat.pi / 180)
-    func ease(_ x: CGFloat) -> CGFloat { let t = min(max(x, 0), 1); return t * t * t * (t * (t * 6 - 15) + 10) }
-    let span = log(muzzle / bore)
-    let rings = CGMutablePath()
-    rings.addEllipse(in: CGRect(x: c.x - muzzle, y: c.y - muzzle, width: 2 * muzzle, height: 2 * muzzle))
-    rings.addEllipse(in: CGRect(x: c.x - bore, y: c.y - bore, width: 2 * bore, height: 2 * bore))
-    // Logarithmic spirals from the middle of one ring to the middle of the other; their ends stay within the rings'
-    // strokes.
-    let lines = CGMutablePath()
-    var points: [[CGPoint]] = []
-    for k in 0..<grooves {
-        var a = CGFloat(k) * 2 * .pi / CGFloat(grooves) - .pi / 2
-        var line: [CGPoint] = []
-        for i in 0...96 {
-            if i > 0 {
-                let t = (CGFloat(i) - 0.5) / 96
-                let bend = max(1 - ease(t / 0.13), 1 - ease((1 - t) / 0.25))
-                a += (twist + (twistAtRing - twist) * bend) * span / 96
-            }
-            let r = muzzle * exp(-span * CGFloat(i) / 96)
-            let point = CGPoint(x: c.x + r * cos(a), y: c.y + r * sin(a))
-            if i == 0 { lines.move(to: point) } else { lines.addLine(to: point) }
-            line.append(point)
-        }
-        points.append(line)
-    }
-    return (rings, lines, muzzle, bore, points)
-}
-
-/// The tip of the black wedge between one end of a groove and its ring, filled the way a morphological closing with a
-/// disc of `radius` fills it: up to the arc of that radius which touches both edges. The shape reaches back into the
-/// white of both lines, as far as their middle lines, so that its only edge on the black is the arc. `line` runs from
-/// the muzzle to the bore; `outer` takes its end at the muzzle, of radius `ring` round `c`.
-func tipFill(line: [CGPoint], center c: CGPoint, ring: CGFloat, lineWidth w: CGFloat, radius: CGFloat,
-             outer: Bool) -> CGPath {
-    func closest(_ p: CGPoint) -> (point: CGPoint, distance: CGFloat, segment: Int) {
-        var best = (point: line[0], distance: CGFloat.infinity, segment: 0)
-        for i in 0..<(line.count - 1) {
-            let a = line[i], b = line[i + 1]
-            let dx = b.x - a.x, dy = b.y - a.y
-            let t = min(max(((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy), 0), 1)
-            let q = CGPoint(x: a.x + t * dx, y: a.y + t * dy)
-            let d = hypot(p.x - q.x, p.y - q.y)
-            if d < best.distance { best = (q, d, i) }
-        }
-        return best
-    }
-    func onCircle(_ r: CGFloat, _ phi: CGFloat) -> CGPoint { CGPoint(x: c.x + r * cos(phi), y: c.y + r * sin(phi)) }
-    let end = outer ? line[0] : line[line.count - 1]
-    let endAngle = atan2(end.y - c.y, end.x - c.x)
-    // The disc keeps `radius` off the ring's edge and off the groove's, so its centre lies on the circle `rho`, where
-    // it is w / 2 + radius from the groove's middle line. From the groove's end the wedge opens along the groove: away
-    // from the muzzle the groove turns with growing angle, towards the bore against it.
-    let rho = outer ? ring - w / 2 - radius : ring + w / 2 + radius
-    let way: CGFloat = outer ? 1 : -1
-    func gap(_ phi: CGFloat) -> CGFloat { closest(onCircle(rho, phi)).distance - (w / 2 + radius) }
-    var near = endAngle, far = endAngle
-    repeat { near = far; far += way * 0.002 } while gap(far) < 0
-    for _ in 0..<60 {
-        let mid = (near + far) / 2
-        if gap(mid) < 0 { near = mid } else { far = mid }
-    }
-    let centre = onCircle(rho, far)
-    let foot = closest(centre)
-    let onGroove = CGPoint(x: foot.point.x + (centre.x - foot.point.x) * w / 2 / foot.distance,
-                           y: foot.point.y + (centre.y - foot.point.y) * w / 2 / foot.distance)
-    let onRing = onCircle(outer ? ring - w / 2 : ring + w / 2, far)
-    // The arc between the two points of contact on the side facing the tip.
-    let from = atan2(onGroove.y - centre.y, onGroove.x - centre.x), to = atan2(onRing.y - centre.y, onRing.x - centre.x)
-    var sweep = (to - from).remainder(dividingBy: 2 * .pi)
-    let middle = CGPoint(x: centre.x + radius * cos(from + sweep / 2), y: centre.y + radius * sin(from + sweep / 2))
-    let opposite = CGPoint(x: 2 * centre.x - middle.x, y: 2 * centre.y - middle.y)
-    if hypot(opposite.x - end.x, opposite.y - end.y) < hypot(middle.x - end.x, middle.y - end.y) {
-        sweep -= (sweep < 0 ? -2 : 2) * .pi
-    }
+/// StatusIcon.selectionPaths at rest and without the pixel grid, in a square of `side` pixels with y growing down,
+/// the frame's strokes and the plus in one path to be filled. With `rounding`, the strokes are that much shorter at
+/// each end and that much thinner on each side, to be grown back by stroking the path `2 * rounding` wide with round
+/// joins: the corners of their ends come out round and everything else where it was.
+func selectionPaths(side: CGFloat, lineWidth w: CGFloat, rounding e: CGFloat = 0) -> CGPath {
+    let frame = (side - w / 2) / (1 + selectionReach)
+    let near = w / 2, far = near + frame, armEnd = near + selectionArm * frame, dashStart = armEnd + selectionGap * frame
+    let r = selectionRadius * frame, inner = near + far - armEnd
+    // The frame's middle line, clockwise from the inner end of the plus's horizontal bar round to that of its vertical
+    // bar, and along it one side's pattern over and over: a dash, a gap, a corner (both its arms and the bend), a gap.
+    let line = CGMutablePath()
+    line.move(to: CGPoint(x: inner, y: far))
+    line.addArc(tangent1End: CGPoint(x: near, y: far), tangent2End: CGPoint(x: near, y: near), radius: r)
+    line.addArc(tangent1End: CGPoint(x: near, y: near), tangent2End: CGPoint(x: far, y: near), radius: r)
+    line.addArc(tangent1End: CGPoint(x: far, y: near), tangent2End: CGPoint(x: far, y: far), radius: r)
+    line.addLine(to: CGPoint(x: far, y: inner))
+    let gap = dashStart - armEnd, dash = near + far - 2 * dashStart, corner = 2 * (armEnd - near - r) + .pi / 2 * r
+    let period = dash + corner + 2 * gap
     let path = CGMutablePath()
-    path.move(to: onGroove)
-    for j in 1...48 {
-        let a = from + sweep * CGFloat(j) / 48
-        path.addLine(to: CGPoint(x: centre.x + radius * cos(a), y: centre.y + radius * sin(a)))
-    }
-    // Back through the white: out to the ring's middle line, along it to the groove's end and back along the groove's.
-    for j in 0...64 { path.addLine(to: onCircle(ring, far + (endAngle - far) * CGFloat(j) / 64)) }
-    let back = outer ? Array(line[1..<(foot.segment + 1)])
-                     : Array(line[(foot.segment + 1)..<(line.count - 1)].reversed())
-    for p in back { path.addLine(to: p) }
-    path.addLine(to: foot.point)
-    path.closeSubpath()
+    path.addPath(line.copy(dashingWithPhase: period - gap - e, lengths: [dash - 2 * e, gap + 2 * e, corner - 2 * e, gap + 2 * e])
+        .copy(strokingWithWidth: w - 2 * e, lineCap: .butt, lineJoin: .miter, miterLimit: 10))
+    path.addRect(CGRect(x: inner + e, y: far - w / 2 + e, width: side - inner - 2 * e, height: w - 2 * e))
+    path.addRect(CGRect(x: far - w / 2 + e, y: inner + e, width: w - 2 * e, height: side - inner - 2 * e))
     return path
 }
 
-/// The white mark as coverage, 0...255, in a `size` × `size` grey bitmap with row 0 at the top: the glyph centred, at
-/// `scale` device pixels to a pixel of the flat drawing.
+/// The white mark as coverage, 0...255, in a `size` × `size` grey bitmap with row 0 at the top: the mark's box
+/// centred, at `scale` device pixels to a pixel of the flat drawing.
 func markCoverage(size: Int, scale: CGFloat) -> [UInt8] {
-    let side = markSide * scale, w = markLineWidth * scale
-    let mark = markPaths(side: side, lineWidth: w)
-    let c = CGPoint(x: side / 2, y: side / 2)
-    let tips = CGMutablePath(), radius = tipRounding * w
-    if radius > 0 {
-        for line in mark.points {
-            tips.addPath(tipFill(line: line, center: c, ring: mark.muzzle, lineWidth: w, radius: radius, outer: true))
-            tips.addPath(tipFill(line: line, center: c, ring: mark.bore, lineWidth: w, radius: radius, outer: false))
-        }
+    let side = selectionSide * scale, w = selectionLineWidth * scale, e = endRounding * w
+    let mark = selectionPaths(side: side, lineWidth: w, rounding: e)
+    var pixels = [UInt8](repeating: 0, count: size * size)
+    pixels.withUnsafeMutableBytes { buffer in
+        let ctx = CGContext(data: buffer.baseAddress, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size,
+                            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)!
+        ctx.translateBy(x: 0, y: CGFloat(size))     // y growing down, as in StatusIcon
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.translateBy(x: (CGFloat(size) - side) / 2, y: (CGFloat(size) - side) / 2)
+        ctx.setFlatness(0.05)
+        ctx.setFillColor(gray: 1, alpha: 1)
+        ctx.addPath(mark)
+        ctx.fillPath()
+        ctx.setStrokeColor(gray: 1, alpha: 1)
+        ctx.setLineWidth(2 * e)
+        ctx.setLineJoin(.round)
+        ctx.addPath(mark)
+        ctx.strokePath()
     }
-    // The rings, the grooves and the tips each in a layer of its own, put together by keeping the lighter pixel: where
-    // the edges of two of them run together, laying one over the other would add up their antialiasing into a bump.
-    func layer(_ draw: (CGContext) -> Void) -> [UInt8] {
-        var pixels = [UInt8](repeating: 0, count: size * size)
-        pixels.withUnsafeMutableBytes { buffer in
-            let ctx = CGContext(data: buffer.baseAddress, width: size, height: size, bitsPerComponent: 8,
-                                bytesPerRow: size, space: CGColorSpaceCreateDeviceGray(),
-                                bitmapInfo: CGImageAlphaInfo.none.rawValue)!
-            ctx.translateBy(x: 0, y: CGFloat(size))     // y growing down, as in StatusIcon
-            ctx.scaleBy(x: 1, y: -1)
-            ctx.translateBy(x: (CGFloat(size) - side) / 2, y: (CGFloat(size) - side) / 2)
-            ctx.setFlatness(0.05)
-            ctx.setFillColor(gray: 1, alpha: 1)
-            ctx.setStrokeColor(gray: 1, alpha: 1)
-            ctx.setLineWidth(w)
-            ctx.setLineCap(.round)
-            ctx.setLineJoin(.round)
-            draw(ctx)
-        }
-        return pixels
-    }
-    let rings = layer { $0.addPath(mark.rings); $0.strokePath() }
-    let grooves = layer { $0.addPath(mark.grooves); $0.strokePath() }
-    let filled = layer { $0.addPath(tips); $0.fillPath() }
-    return (0..<(size * size)).map { max(rings[$0], grooves[$0], filled[$0]) }
+    return pixels
 }
 
 // MARK: - The icon files (the same in every app of the family)

@@ -17,7 +17,7 @@ cd "$ROOT"
 
 APP_NAME="Screenshooter"
 BUNDLE_ID="${BUNDLE_ID:-com.screenshooter.app}"
-VERSION="${VERSION:-1.2.1}"
+VERSION="${VERSION:-1.2.2}"
 BUILD_NUMBER="${BUILD_NUMBER:-$(date +%Y%m%d%H%M)}"
 ARCHS="${ARCHS:-arm64 x86_64}"
 if [ -z "${SIGN_IDENTITY:-}" ]; then

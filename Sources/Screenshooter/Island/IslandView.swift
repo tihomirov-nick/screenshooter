@@ -269,14 +269,16 @@ struct IslandReveal: ViewModifier {
     }
 }
 
-/// The app's mark in lines, drawn by the same code as the menu bar icon: both rings and six grooves.
+/// The app's mark in lines, drawn by the same code as the menu bar icon: the frame of strokes and the plus, on whole
+/// pixels of the screen it is on.
 struct MarkGlyph: View {
     var side: CGFloat
     var lineWidth: CGFloat = IslandMark.lineWidth
+    @Environment(\.displayScale) private var scale
 
     var body: some View {
-        MarkShape(lineWidth: lineWidth)
-            .stroke(style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+        MarkShape(lineWidth: lineWidth, scale: scale)
+            .fill()
             .frame(width: side, height: side)
             .accessibilityHidden(true)
     }
@@ -284,13 +286,12 @@ struct MarkGlyph: View {
 
 private struct MarkShape: Shape {
     let lineWidth: CGFloat
+    let scale: CGFloat
 
     func path(in rect: CGRect) -> Path {
         let side = min(rect.width, rect.height)
-        let mark = StatusIcon.markPaths(side: side, lineWidth: lineWidth)
-        var path = Path(mark.rings)
-        path.addPath(Path(mark.grooves))
-        return path.offsetBy(dx: rect.midX - side / 2, dy: rect.midY - side / 2)
+        return Path(StatusIcon.markOutline(side: side, lineWidth: lineWidth, scale: scale))
+            .offsetBy(dx: rect.midX - side / 2, dy: rect.midY - side / 2)
     }
 }
 

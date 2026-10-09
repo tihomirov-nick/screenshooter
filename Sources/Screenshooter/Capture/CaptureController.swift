@@ -165,7 +165,7 @@ final class CaptureController {
     /// Saves, copies and puts the capture on the shelf. Encoding runs off the main thread.
     func deliver(_ image: CGImage, scale: CGFloat) {
         SoundEffects.play(.shutter)
-        StatusIcon.shared.play(.turn)
+        StatusIcon.shared.play(.shot)
         let copy = Prefs.copyToClipboard
         processing += 1
         Task.detached(priority: .userInitiated) {

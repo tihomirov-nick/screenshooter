@@ -51,9 +51,9 @@ enum PreviewRenderer {
     private static func writeStatusIconFrames(into folder: URL) {
         let strips: [(String, [NSImage])] = [
             ("rest", [StatusIcon.image()]),
-            ("turn", stride(from: 0.0, through: 1.0, by: 0.125).map { StatusIcon.image(turn: StatusIcon.turn($0)) }),
-            ("bounce", stride(from: 0.0, through: 1.0, by: 0.125).map { StatusIcon.image(lift: StatusIcon.bounce($0)) }),
-            ("pulse", stride(from: 0.0, through: 1.2, by: 0.15).map { StatusIcon.image(rifling: StatusIcon.pulse($0)) }),
+            ("shot", stride(from: 0.0, through: 1.0, by: 0.125).map { StatusIcon.image(.init(shot: StatusIcon.ease($0))) }),
+            ("bounce", stride(from: 0.0, through: 1.0, by: 0.125).map { StatusIcon.image(.init(lift: StatusIcon.bounce($0))) }),
+            ("pulse", stride(from: 0.0, through: 0.9, by: 0.1125).map { StatusIcon.image(.init(detail: StatusIcon.pulse($0))) }),
         ]
         for (name, frames) in strips {
             let size = NSSize(width: CGFloat(frames.count) * 28, height: 28)
