@@ -11,6 +11,16 @@ MainActor.assumeIsolated {
         PreviewRenderer.run(into: URL(fileURLWithPath: arguments[i + 1], isDirectory: true))
         exit(0)
     }
+    if let i = arguments.firstIndex(of: "--render-island"), i + 1 < arguments.count {
+        app.setActivationPolicy(.prohibited)
+        PreviewRenderer.renderIsland(into: URL(fileURLWithPath: arguments[i + 1], isDirectory: true))
+        exit(0)
+    }
+    if let i = arguments.firstIndex(of: "--render-island-motion"), i + 1 < arguments.count {
+        app.setActivationPolicy(.prohibited)
+        PreviewRenderer.renderIslandMotion(into: URL(fileURLWithPath: arguments[i + 1], isDirectory: true))
+        exit(0)
+    }
     if let i = arguments.firstIndex(of: "--render-windows"), i + 1 < arguments.count {
         app.setActivationPolicy(.prohibited)
         PreviewRenderer.renderWindows(into: URL(fileURLWithPath: arguments[i + 1], isDirectory: true))

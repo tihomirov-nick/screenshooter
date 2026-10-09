@@ -179,7 +179,7 @@ final class IslandController: IslandDropTarget {
     func notify(_ text: String, symbol: String = "checkmark.circle.fill") {
         guard panel != nil else { return }
         if model.state == .open {
-            model.toast = text
+            model.toast = IslandToast(text: text, symbol: symbol)
             toastWork?.cancel()
             let work = DispatchWorkItem { [weak self] in self?.model.toast = nil }
             toastWork = work
@@ -251,7 +251,8 @@ final class IslandController: IslandDropTarget {
 
     /// The island's outline in the given state (grown while something is dragged over it), AppKit coordinates.
     private func shapeRect(_ state: IslandState) -> NSRect {
-        let size = state == model.state ? model.shapeSize : model.metrics.size(for: state)
+        let shelf = Shelf.shared
+        let size = state == model.state ? model.shapeSize(shelf: shelf) : model.size(for: state, shelf: shelf)
         return NSRect(x: centerX - size.width / 2, y: top - size.height, width: size.width, height: size.height + 1)
     }
 
@@ -262,8 +263,11 @@ final class IslandController: IslandDropTarget {
                       width: m.notchWidth + 16, height: m.notchHeight + 4)
     }
 
+    /// Over the island, or over the camera housing while the island is closed in it.
     private var isPointerOverIsland: Bool {
-        shapeRect(model.state).insetBy(dx: -4, dy: -4).contains(NSEvent.mouseLocation)
+        let mouse = NSEvent.mouseLocation
+        if model.state == .closed { return hotRect.contains(mouse) }
+        return shapeRect(model.state).insetBy(dx: -4, dy: -4).contains(mouse)
     }
 
     private func mouseEvent(_ event: NSEvent) {
@@ -461,13 +465,16 @@ final class IslandController: IslandDropTarget {
         keyPanel?.orderOut(nil)
     }
 
-    /// ⌘C copies the chosen card, ⌫ takes it away the way its quick button does, Esc lets go of it. Every other
-    /// key is swallowed: ⌘Q or ⌘W must not reach this app's menu.
+    /// ⌘C copies the chosen card, ⌫ takes it away the way its quick button does, the arrows choose the card next to
+    /// it, Return opens it as a double click does, Esc lets go of it. Every other key is swallowed: ⌘Q or ⌘W must not
+    /// reach this app's menu.
     private func key(_ event: NSEvent) -> Bool {
-        guard let id = model.selectedItemID, let item = Shelf.shared.items.first(where: { $0.id == id }) else {
+        let items = Shelf.shared.items
+        guard let id = model.selectedItemID, let index = items.firstIndex(where: { $0.id == id }) else {
             deselect()
             return true
         }
+        let item = items[index]
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let code = Int(event.keyCode)
         if flags == .command, Self.isCopyKey(event) {
@@ -475,6 +482,12 @@ final class IslandController: IslandDropTarget {
         } else if flags.isEmpty, code == kVK_Delete || code == kVK_ForwardDelete {
             deselect()
             if item.isCapture { actions?.trash(item) } else { actions?.remove(item) }
+        } else if flags.isEmpty, code == kVK_LeftArrow || code == kVK_RightArrow {
+            let next = index + (code == kVK_LeftArrow ? -1 : 1)
+            if items.indices.contains(next) { model.selectedItemID = items[next].id }
+        } else if flags.isEmpty, code == kVK_Return || code == kVK_ANSI_KeypadEnter {
+            deselect()
+            if item.kind == .image { actions?.edit(item) } else { actions?.open(item) }
         } else if flags.isEmpty, code == kVK_Escape {
             deselect()
         }

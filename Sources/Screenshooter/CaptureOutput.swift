@@ -45,7 +45,8 @@ enum CaptureOutput {
     /// Saves to the chosen folder (the Desktop by default) or, with saving turned off, to the shelf's
     /// own folder, so the capture can still be dragged and opened. Returns the file and whether it is
     /// kept only for the shelf.
-    static func save(_ image: CGImage, scale: CGFloat) throws -> (url: URL, shelfOnly: Bool, png: Data?) {
+    /// `folderError`: the chosen folder could not take the file, which went to the shelf's own folder instead.
+    static func save(_ image: CGImage, scale: CGFloat) throws -> (url: URL, shelfOnly: Bool, png: Data?, folderError: Error?) {
         let format = Prefs.imageFormat
         guard let data = encode(image, scale: scale, format: format) else { throw CaptureError.nothingCaptured }
         let shelfOnly = !Prefs.saveToFolder
@@ -59,9 +60,9 @@ enum CaptureOutput {
             folder = AppFolders.shelfFiles
             url = newFileURL(in: folder, format: format)
             try data.write(to: url, options: .atomic)
-            return (url, true, format == .png ? data : nil)
+            return (url, true, format == .png ? data : nil, error)
         }
-        return (url, shelfOnly, format == .png ? data : nil)
+        return (url, shelfOnly, format == .png ? data : nil, nil)
     }
 
     // MARK: Clipboard

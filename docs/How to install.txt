@@ -7,10 +7,13 @@ Click, and the screenshot is saved to the Desktop and lands on a shelf in the
 notch, from where you can drag it into any app.
 
 INSTALLING
-1. Drag the Screenshooter icon onto the Applications folder next to it.
-2. Open the Applications folder in Finder and launch Screenshooter.
-   The app has no main window. It works in the menu bar (an icon of two rings
-   with spiral lines between them, like a rifled gun barrel) and in the notch.
+Double-click the Screenshooter icon right in this window. The app moves itself
+to the Applications folder, starts from there and ejects this disk. It has no
+main window: it works in the menu bar (an icon of two rings with spiral lines
+between them, like a rifled gun barrel) and in the notch.
+
+You can also install it by hand: drag the Screenshooter icon onto the
+Applications folder next to it and launch the app from Applications.
 
 IF macOS WON'T OPEN THE APP
 The app isn't notarized by Apple, so macOS may show a warning the first time.
@@ -23,7 +26,8 @@ You need to allow it only once.
   • On macOS 14, right-click Screenshooter in Finder, choose "Open" and click
     "Open" again in the warning.
 
-  • If that doesn't help, open Terminal and run:
+  • If that doesn't help, drag Screenshooter onto the Applications folder,
+    open Terminal and run:
         xattr -dr com.apple.quarantine /Applications/Screenshooter.app
 
 FIRST LAUNCH

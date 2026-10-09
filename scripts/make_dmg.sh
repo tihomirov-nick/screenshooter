@@ -5,7 +5,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-VERSION="${VERSION:-1.1.2}"
+VERSION="${VERSION:-1.2.0}"
 export VERSION
 # Release builds are signed with the app's own self-signed certificate "tihomirov-nick" (no e-mail in it, unlike a
 # development certificate): installed copies update themselves only to a version signed by the same certificate.

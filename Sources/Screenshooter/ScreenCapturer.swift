@@ -3,16 +3,46 @@ import Detection
 import ScreenCaptureKit
 import ShotCore
 
-enum CaptureError: LocalizedError {
+enum CaptureError: Error {
     case permissionDenied
     case nothingCaptured
     case windowGone
+}
 
-    var errorDescription: String? {
+/// A failed capture in the user's words: what happened and what to do, in the interface language. The error itself,
+/// with its domain and code, goes to the log.
+enum CaptureFailure: Equatable {
+    /// Screen recording is not allowed: the welcome window explains how to allow it.
+    case permission
+    case windowGone
+    /// The file could not be written for want of space.
+    case diskFull
+    /// The file could not be written for another reason.
+    case notSaved
+    /// Anything else: ScreenCaptureKit failing, an empty picture.
+    case other
+
+    init(_ error: Error) {
+        switch error {
+        case CaptureError.permissionDenied: self = .permission
+        case CaptureError.windowGone: self = .windowGone
+        case let error as SCStreamError where error.code == .userDeclined: self = .permission
+        case let error as CocoaError where error.code == .fileWriteOutOfSpace: self = .diskFull
+        case let error as POSIXError where error.code == .ENOSPC: self = .diskFull
+        // Foundation's file errors take codes 0–1023.
+        case let error as CocoaError where (0...1023).contains(error.code.rawValue): self = .notSaved
+        default: self = .other
+        }
+    }
+
+    /// For the island; nothing for a missing permission, which opens the welcome window instead.
+    var message: String? {
         switch self {
-        case .permissionDenied: return L("Нет разрешения на запись экрана")
-        case .nothingCaptured: return L("Не удалось снять экран")
+        case .permission: return nil
         case .windowGone: return L("Окно уже закрыто")
+        case .diskFull: return L("Не удалось сохранить снимок. Освободите место на диске и попробуйте ещё раз")
+        case .notSaved: return L("Не удалось сохранить снимок, попробуйте ещё раз")
+        case .other: return L("Не удалось снять экран, попробуйте ещё раз")
         }
     }
 }

@@ -124,8 +124,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Menu bar icon
 
     private func setUpStatusItem() {
-        // A square item, like FaceID's: the two icons stand level and as far apart as the others.
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        // As wide as the icon plus the menu bar's own margins (`variableLength`), like FaceID's: the two icons stand
+        // level and as far apart as the others. A square item would leave a wider gap around it.
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button { StatusIcon.shared.attach(to: button) }
         item.button?.toolTip = "Screenshooter"
 

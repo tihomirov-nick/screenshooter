@@ -167,7 +167,7 @@ private struct UpdateSection: View {
         Section {
             Toggle(L("Проверять обновления"), isOn: Binding(get: { updater.automaticChecks },
                                                             set: { updater.automaticChecks = $0 }))
-                .help(L("Раз в сутки Screenshooter смотрит, нет ли новой версии на GitHub, и предлагает её в островке."))
+                .help(L("Раз в сутки Screenshooter смотрит, нет ли новой версии, и предлагает её в островке."))
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L("Версия %@", updater.currentVersion))
@@ -218,7 +218,7 @@ private struct UpdateSection: View {
         case .downloading:
             Button(L("Отмена")) { updater.cancel() }
         case .failed(let failure, let release) where release != nil || failure == .noInstaller:
-            Button(failure == .cannotReplace ? L("Открыть DMG") : L("Страница релиза")) { updater.openReleasePage() }
+            Button(failure == .cannotReplace ? L("Открыть установщик") : L("Страница загрузки")) { updater.openReleasePage() }
         default:
             EmptyView()
         }

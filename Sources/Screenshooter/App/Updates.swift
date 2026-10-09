@@ -11,13 +11,13 @@ extension Updater.Failure {
     /// One short line for the island and the settings.
     var message: String {
         switch self {
-        case .offline: return L("Нет связи с GitHub")
-        case .rateLimited: return L("GitHub просит подождать. Попробуйте позже")
+        case .offline: return L("Нет связи с сервером обновлений")
+        case .rateLimited: return L("Сервер просит подождать. Попробуйте позже")
         case .noInstaller: return L("У новой версии нет установщика")
         case .download: return L("Загрузка прервалась")
         case .damaged: return L("Скачанный файл повреждён")
         case .notTrusted: return L("Новая версия подписана чужим сертификатом")
-        case .cannotReplace: return L("Отсюда приложение не заменить: перетащите его из DMG")
+        case .cannotReplace: return L("Отсюда приложение не заменить. Перетащите Screenshooter в папку «Программы»")
         }
     }
 }

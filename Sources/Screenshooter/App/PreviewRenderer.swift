@@ -41,75 +41,11 @@ enum PreviewRenderer {
         view.update(manual, animated: false)
         write(render(view.layer!, size: view.bounds.size, scale: 2), to: folder.appendingPathComponent("overlay-manual.png"))
 
-        // The island in each state, on a light menu bar. The shelf holds captures, a text and two files.
-        var items = (0..<5).map { i in
-            ShelfItem(id: UUID(), url: URL(fileURLWithPath: "/tmp/preview-\(i).png"),
-                      date: Date().addingTimeInterval(-Double(i) * 600), pixelWidth: [1672, 840, 2400, 600, 1200][i],
-                      pixelHeight: [1246, 220, 1500, 1776, 800][i], shelfOnly: false, isCapture: true)
-        }
-        var thumbs: [UUID: NSImage] = [:]
-        for (i, item) in items.enumerated() {
-            thumbs[item.id] = Shelf.thumbnail(of: fakeThumbnail(i, width: item.pixelWidth, height: item.pixelHeight))
-        }
-        let note = ShelfItem(id: UUID(), kind: .text, url: URL(fileURLWithPath: "/tmp/preview.txt"),
-                             date: Date().addingTimeInterval(-300), shelfOnly: true)
-        let pdf = ShelfItem(id: UUID(), kind: .file, url: URL(fileURLWithPath: "/tmp/Договор поставки.pdf"),
-                            date: Date().addingTimeInterval(-400))
-        let archive = ShelfItem(id: UUID(), kind: .file, url: URL(fileURLWithPath: "/tmp/Макеты.zip"),
-                                date: Date().addingTimeInterval(-500))
-        items.insert(contentsOf: [note, pdf, archive], at: 1)
-        thumbs[pdf.id] = NSWorkspace.shared.icon(for: .pdf)
-        thumbs[archive.id] = NSWorkspace.shared.icon(for: .zip)
-        let texts = [note.id: "Встреча в четверг в 15:00. Обсудить сроки по второму этапу, бюджет на дизайн и кто готовит презентацию для клиента."]
-        let shelf = Shelf(preview: items, thumbnails: thumbs, texts: texts)
-        let actions = IslandActions(capture: {}, openFolder: {}, openSettings: {}, clear: {}, edit: { _ in },
-                                    open: { _ in }, copy: { _ in }, copyText: { _ in }, reveal: { _ in }, keep: { _ in },
-                                    remove: { _ in }, trash: { _ in }, select: { _ in }, update: { _ in })
-        let states: [(String, IslandState, (IslandModel) -> Void)] = [
-            ("closed", .closed, { _ in }),
-            ("peek", .peek, { $0.peekItemID = items[0].id }),
-            ("banner", .banner, { $0.bannerText = L("Текст скопирован"); $0.bannerSymbol = "text.viewfinder" }),
-            ("open", .open, { $0.highlightedItemID = items[0].id }),
-            ("open-toast", .open, { $0.toast = L("Скопировано") }),
-            ("open-selected", .open, { $0.selectedItemID = items[0].id }),
-            ("open-drop", .open, { $0.dropTargeted = true }),
-            ("open-update", .open, { $0.update = .available(sampleRelease) }),
-            ("open-downloading", .open, { $0.update = .downloading(sampleRelease, progress: 0.42) }),
-            ("open-update-failed", .open, { $0.update = .failed(.notTrusted, sampleRelease) }),
-        ]
-        for (name, islandState, configure) in states {
-            let model = IslandModel()
-            model.metrics = IslandMetrics(notchWidth: 185, notchHeight: 32, hasNotch: true)
-            model.state = islandState
-            configure(model)
-            let size = model.metrics.panelSize
-            let content = ZStack(alignment: .top) {
-                LinearGradient(colors: [Color(white: 0.93), Color(white: 0.80)], startPoint: .top, endPoint: .bottom)
-                IslandRootView(model: model, shelf: shelf, actions: actions)
-            }
-            .frame(width: size.width, height: size.height)
-            write(renderSwiftUI(content, size: size), to: folder.appendingPathComponent("island-\(name).png"))
-        }
+        // The island in every state and its motion, in folders of their own.
+        renderIsland(into: folder.appendingPathComponent("island", isDirectory: true))
+        renderIslandMotion(into: folder.appendingPathComponent("island-motion", isDirectory: true))
         writeStatusIconFrames(into: folder)
-
-        let empty = IslandModel()
-        empty.metrics = IslandMetrics(notchWidth: 185, notchHeight: 32, hasNotch: true)
-        empty.state = .open
-        let emptyShelf = Shelf(preview: [], thumbnails: [:])
-        let size = empty.metrics.panelSize
-        let emptyContent = ZStack(alignment: .top) {
-            Color(white: 0.9)
-            IslandRootView(model: empty, shelf: emptyShelf, actions: actions)
-        }
-        .frame(width: size.width, height: size.height)
-        write(renderSwiftUI(emptyContent, size: size), to: folder.appendingPathComponent("island-empty.png"))
     }
-
-    private static let sampleRelease = Updater.Release(
-        version: "1.1.0", title: "Screenshooter 1.1.0",
-        notes: "## Что нового\n- На полку можно класть любые файлы и текст\n- Островок раскрывается из выреза",
-        page: URL(string: "https://github.com/tihomirov-nick/screenshooter/releases/tag/v1.1.0")!,
-        dmg: URL(string: "https://example.com/Screenshooter-1.1.0.dmg")!, size: 4_000_000)
 
     /// The menu bar icon at rest and through each of its motions, white on a dark menu bar, one strip each.
     private static func writeStatusIconFrames(into folder: URL) {
@@ -131,7 +67,8 @@ enum PreviewRenderer {
                         rect.fill(using: .sourceAtop)
                         return true
                     }
-                    white.draw(in: NSRect(x: CGFloat(i) * 28 + 5, y: 5, width: 18, height: 18))
+                    white.draw(in: NSRect(x: CGFloat(i) * 28 + (28 - frame.size.width) / 2, y: (28 - frame.size.height) / 2,
+                                          width: frame.size.width, height: frame.size.height))
                 }
                 return true
             }
@@ -200,7 +137,7 @@ enum PreviewRenderer {
     }
 
     /// Through a real hosting view in a window that is never shown (ImageRenderer skips scroll views).
-    private static func renderSwiftUI<V: View>(_ view: V, size: CGSize) -> CGImage? {
+    static func renderSwiftUI<V: View>(_ view: V, size: CGSize) -> CGImage? {
         let hosting = NSHostingView(rootView: view)
         hosting.frame = CGRect(origin: .zero, size: size)
         let window = NSWindow(contentRect: hosting.frame, styleMask: .borderless, backing: .buffered, defer: false)
@@ -212,7 +149,7 @@ enum PreviewRenderer {
         return rep.cgImage
     }
 
-    private static func write(_ image: CGImage?, to url: URL) {
+    static func write(_ image: CGImage?, to url: URL) {
         guard let image, let data = CaptureOutput.encode(image, scale: 2, format: .png) else {
             print("failed: \(url.lastPathComponent)")
             return
@@ -256,22 +193,6 @@ enum PreviewRenderer {
         for i in 0..<9 {
             ctx.setFillColor(CGColor(gray: i == 2 ? 0.80 : 0.86, alpha: 1))
             ctx.fill(rect(136, 170 + CGFloat(i) * 72, 278, 60))
-        }
-        return ctx.makeImage()!
-    }
-
-    private static func fakeThumbnail(_ i: Int, width: Int, height: Int) -> CGImage {
-        let w = max(1, width / 4), h = max(1, height / 4)
-        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let hues: [CGFloat] = [0.58, 0.33, 0.08, 0.75, 0.95]
-        let base = NSColor(hue: hues[i % hues.count], saturation: 0.35, brightness: 0.95, alpha: 1).cgColor
-        ctx.setFillColor(base)
-        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
-        ctx.setFillColor(CGColor(gray: 1, alpha: 0.85))
-        for row in 0..<max(1, h / 30) {
-            ctx.fill(CGRect(x: 10, y: CGFloat(row * 30 + 10), width: CGFloat(w) * (row % 2 == 0 ? 0.6 : 0.4), height: 14))
         }
         return ctx.makeImage()!
     }

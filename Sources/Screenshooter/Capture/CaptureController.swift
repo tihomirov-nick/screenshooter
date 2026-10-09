@@ -174,7 +174,16 @@ final class CaptureController {
                 await MainActor.run {
                     if copy { CaptureOutput.copy(image, scale: scale, png: saved.png) }
                     let item = Shelf.shared.addCapture(url: saved.url, image: image, shelfOnly: saved.shelfOnly)
-                    IslandController.shared.showCapture(item)
+                    if let error = saved.folderError {
+                        // The chosen folder is gone or read-only: the capture is kept on the shelf, and the island
+                        // says so instead of showing it in the wings.
+                        Log.capture.error("screenshots folder unavailable: \(String(describing: error), privacy: .private)")
+                        IslandController.shared.notify(L("Папка снимков недоступна, снимок остался на полке. Выберите папку в настройках"),
+                                                       symbol: "exclamationmark.triangle.fill")
+                        SoundEffects.play(.failure)
+                    } else {
+                        IslandController.shared.showCapture(item)
+                    }
                 }
             } catch {
                 await MainActor.run { self.report(error) }
@@ -197,12 +206,15 @@ final class CaptureController {
         app.activate()
     }
 
+    /// The details go to the log; the island says what happened and what to do.
     private func report(_ error: Error) {
-        if case CaptureError.permissionDenied = error {
+        let failure = CaptureFailure(error)
+        Log.capture.error("capture failed (\(String(describing: failure), privacy: .public)): \(String(describing: error), privacy: .private)")
+        guard let message = failure.message else {
             OnboardingWindow.show()
             return
         }
-        IslandController.shared.notify(error.localizedDescription, symbol: "exclamationmark.triangle.fill")
+        IslandController.shared.notify(message, symbol: "exclamationmark.triangle.fill")
         SoundEffects.play(.failure)
     }
 }
