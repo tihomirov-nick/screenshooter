@@ -2,7 +2,8 @@ import AppKit
 import ShotCore
 
 /// The menu bar menus shown while a window of the app (settings, editor) is open, and the standard key
-/// equivalents (⌘C, ⌘Z, ⌘W…) for text fields and windows.
+/// equivalents (⌘C, ⌘Z, ⌘W…) for text fields and windows. The app's menu follows the family standard: About, updates,
+/// Settings, Services, Hide, Quit.
 @MainActor
 enum MainMenu {
     static func install() {
@@ -10,12 +11,21 @@ enum MainMenu {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: L("О программе Screenshooter"), action: #selector(AppDelegate.showAbout), keyEquivalent: "")
+        appMenu.addItem(withTitle: L("О приложении «Screenshooter»"), action: #selector(AppDelegate.showAbout), keyEquivalent: "")
+        appMenu.addItem(withTitle: L("Проверить обновления…"), action: #selector(AppDelegate.checkForUpdates), keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: L("Настройки…"), action: #selector(AppDelegate.showSettings), keyEquivalent: ",")
         appMenu.addItem(.separator())
+        let services = NSMenu()
+        appMenu.addItem(withTitle: L("Службы"), action: nil, keyEquivalent: "").submenu = services
+        NSApp.servicesMenu = services
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: L("Скрыть Screenshooter"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        appMenu.addItem(withTitle: L("Выйти из Screenshooter"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: L("Скрыть остальные"), action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+            .keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(withTitle: L("Показать все"), action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: L("Завершить Screenshooter"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
 
@@ -28,13 +38,13 @@ enum MainMenu {
         editMenu.addItem(withTitle: L("Вырезать"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: L("Скопировать"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: L("Вставить"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        editMenu.addItem(withTitle: L("Выбрать всё"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(withTitle: L("Выбрать все"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = editMenu
         main.addItem(editItem)
 
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: L("Окно"))
-        windowMenu.addItem(withTitle: L("Свернуть"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: L("Убрать в Dock"), action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowMenu.addItem(withTitle: L("Закрыть"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         windowItem.submenu = windowMenu
         main.addItem(windowItem)

@@ -1,4 +1,5 @@
 import AppKit
+import PictureTools
 import ShotCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -27,10 +28,11 @@ extension PreviewRenderer {
 
     // MARK: - States
 
-    static func renderIsland(into folder: URL) {
+    /// `only`: the states whose names start with it, on a sheet of their own ("pic-" for the pictures and the clipboard).
+    static func renderIsland(into folder: URL, only prefix: String? = nil) {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         IslandProbe.isEnabled = true
-        let samples = islandSamples()
+        let samples = islandSamples().filter { prefix == nil || $0.name.hasPrefix(prefix!) }
         let displays = [IslandDisplay.notch, .plain]
         var cells: [[CGImage?]] = []
         var report: [String] = []
@@ -57,7 +59,7 @@ extension PreviewRenderer {
         let language = Localization.current
         let header = language == "ru" ? ["Русский, с вырезом", "Русский, без выреза"] : ["English, notch", "English, no notch"]
         write(sheet(cells: cells, labels: samples.map(\.label), header: header, rowHeights: samples.map { rowHeight($0) }),
-              to: folder.appendingPathComponent("states-\(language).png"))
+              to: folder.appendingPathComponent("states-\(language)\(prefix.map { "-" + $0.trimmingCharacters(in: CharacterSet(charactersIn: "-")) } ?? "").png"))
         report.append(failures == 0 ? "ALL CENTRED" : "\(failures) PROBLEMS")
         try? report.joined(separator: "\n").appending("\n")
             .write(to: folder.appendingPathComponent("centering-\(language).txt"), atomically: true, encoding: .utf8)
@@ -77,13 +79,13 @@ extension PreviewRenderer {
     private static let noActions = IslandActions(
         capture: {}, openFolder: {}, openSettings: {}, clear: {}, edit: { _ in }, open: { _ in }, copy: { _ in },
         copyText: { _ in }, reveal: { _ in }, keep: { _ in }, remove: { _ in }, trash: { _ in }, select: { _ in },
-        update: { _ in })
+        update: { _ in }, removeBackground: { _ in }, selectAllPictures: {}, moodboard: { _ in }, copyFolderPictures: { _ in })
 
     static let sampleUpdate = Updater.Release(
-        version: "1.2.5", title: "Screenshooter 1.2.5",
+        version: "1.3.1", title: "Screenshooter 1.3.1",
         notes: "## Что нового\n- Островок раскрывается из центра выреза\n- Новый знак на полке и в строке меню",
-        page: URL(string: "https://github.com/tihomirov-nick/screenshooter/releases/tag/v1.2.5")!,
-        dmg: URL(string: "https://example.com/Screenshooter-1.2.5.dmg")!, size: 4_200_000)
+        page: URL(string: "https://github.com/tihomirov-nick/screenshooter/releases/tag/v1.3.1")!,
+        dmg: URL(string: "https://example.com/Screenshooter-1.3.1.dmg")!, size: 4_200_000)
 
     private static func islandSamples() -> [IslandSample] {
         let s = SampleShelf()
@@ -95,7 +97,8 @@ extension PreviewRenderer {
         let files = s.shelf([s.longName, s.keynote, s.pdf, s.note])
         let empty = s.shelf([])
         let failure = Updater.State.failed(.offline, sampleUpdate)
-        return [
+        let made = s.shelf([s.cutout, s.moodboard, s.captures[0], s.folder, s.captures[1], s.captures[2]])
+        return pictureSamples(s, made: made, five: five) + [
             IslandSample(name: "closed", label: "Закрыт", state: .closed, shelf: five),
             IslandSample(name: "peek-landscape", label: "Крылья: горизонтальный снимок", state: .peek, shelf: five) {
                 $0.peekItemID = s.captures[0].id
@@ -177,6 +180,59 @@ extension PreviewRenderer {
                          shelf: two) { $0.update = .failed(.cannotReplace, sampleUpdate) },
             IslandSample(name: "update-empty", label: "Обновление на пустой полке", state: .open, shelf: empty) {
                 $0.update = .available(sampleUpdate)
+            },
+        ]
+    }
+
+    /// The pictures and the clipboard: the cut-out button, several cards chosen, the new card of a cut-out or a
+    /// moodboard, a folder dragged over the shelf, work under way, what went wrong.
+    private static func pictureSamples(_ s: SampleShelf, made: Shelf, five: Shelf) -> [IslandSample] {
+        let chosen: Set<UUID> = [s.captures[0].id, s.captures[1].id, s.captures[2].id]
+        return [
+            IslandSample(name: "pic-hover", label: "Картинка под указателем: «Убрать фон»", state: .open, shelf: five) {
+                $0.hoveredItemID = s.captures[0].id
+            },
+            IslandSample(name: "pic-multi", label: "Выбраны три картинки", state: .open, shelf: made) {
+                $0.selectedItemIDs = chosen; $0.selectedItemID = s.captures[0].id
+            },
+            IslandSample(name: "pic-multi-copied", label: "Три картинки скопированы разом", state: .open, shelf: made) {
+                $0.selectedItemIDs = chosen; $0.selectedItemID = s.captures[0].id
+                $0.toast = IslandToast(text: L("Скопировано: %@", "3"), symbol: "checkmark.circle.fill")
+            },
+            IslandSample(name: "pic-busy", label: "Фон убирается (шапка)", state: .open, shelf: five) {
+                $0.toast = IslandToast(text: L("Убираю фон…"), symbol: "person.and.background.dotted", busy: true)
+            },
+            IslandSample(name: "pic-cutout", label: "Готово: картинка без фона", state: .open, shelf: made) {
+                $0.highlightedItemID = s.cutout.id
+                $0.toast = IslandToast(text: L("Скопировано без фона"), symbol: "checkmark.circle.fill")
+            },
+            IslandSample(name: "pic-moodboard", label: "Готово: мудборд", state: .open, shelf: made) {
+                $0.highlightedItemID = s.moodboard.id
+                $0.toast = IslandToast(text: L("Мудборд скопирован"), symbol: "checkmark.circle.fill")
+            },
+            IslandSample(name: "pic-drop-shelf", label: "Папка над полкой: на полку", state: .open, shelf: five) {
+                $0.dragOver = true; $0.dropTargeted = true; $0.dropFolder = true; $0.dropZone = .shelf
+            },
+            IslandSample(name: "pic-drop-moodboard", label: "Папка над полкой: в мудборд", state: .open, shelf: five) {
+                $0.dragOver = true; $0.dropTargeted = true; $0.dropFolder = true; $0.dropZone = .moodboard
+            },
+            IslandSample(name: "pic-banner-busy", label: "Баннер: мудборд собирается", state: .banner, shelf: five) {
+                $0.bannerText = L("Собираю мудборд…"); $0.bannerSymbol = "rectangle.3.group"; $0.bannerBusy = true
+            },
+            IslandSample(name: "pic-banner-cutout", label: "Баннер: фон убран", state: .banner, shelf: five) {
+                $0.bannerText = L("Скопировано без фона"); $0.bannerSymbol = "checkmark.circle.fill"
+            },
+            IslandSample(name: "pic-banner-folder", label: "Баннер: картинки папки скопированы", state: .banner, shelf: five) {
+                $0.bannerText = L("Скопировано: %@", "24"); $0.bannerSymbol = "checkmark.circle.fill"
+            },
+            IslandSample(name: "pic-banner-no-object", label: "Баннер: объект не найден", state: .banner, shelf: five) {
+                $0.bannerText = L("Объект на картинке не найден"); $0.bannerSymbol = "person.and.background.dotted"
+            },
+            IslandSample(name: "pic-banner-no-picture", label: "Баннер: в буфере нет картинки", state: .banner, shelf: five) {
+                $0.bannerText = L("В буфере нет картинки"); $0.bannerSymbol = "doc.on.clipboard"
+            },
+            IslandSample(name: "pic-banner-empty-folder", label: "Баннер: в папке нет картинок", state: .banner, shelf: five) {
+                $0.bannerText = L("В папке нет картинок"); $0.bannerSymbol = "folder"
             },
         ]
     }
@@ -458,6 +514,10 @@ struct SampleShelf {
     let archive: ShelfItem
     let longName: ShelfItem
     let keynote: ShelfItem
+    /// A picture without its background, a moodboard, a folder.
+    let cutout: ShelfItem
+    let moodboard: ShelfItem
+    let folder: ShelfItem
     var thumbnails: [UUID: NSImage] = [:]
     let texts: [UUID: String]
 
@@ -482,6 +542,15 @@ struct SampleShelf {
                              date: base.addingTimeInterval(-600))
         keynote = ShelfItem(id: UUID(), kind: .file, url: URL(fileURLWithPath: "/tmp/Презентация квартального отчёта.key"),
                             date: base.addingTimeInterval(-700))
+        cutout = ShelfItem(id: UUID(), url: URL(fileURLWithPath: "/tmp/Скриншот без фона.png"), date: base.addingTimeInterval(60),
+                           pixelWidth: 520, pixelHeight: 610, shelfOnly: true)
+        moodboard = ShelfItem(id: UUID(), url: URL(fileURLWithPath: "/tmp/Мудборд Референсы.png"), date: base.addingTimeInterval(30),
+                              pixelWidth: 2400, pixelHeight: 1620, shelfOnly: true)
+        folder = ShelfItem(id: UUID(), kind: .file, url: URL(fileURLWithPath: "/tmp/Референсы/", isDirectory: true),
+                           date: base.addingTimeInterval(-800))
+        thumbnails[cutout.id] = Shelf.thumbnail(of: SampleShelf.cutoutPicture())
+        thumbnails[moodboard.id] = Shelf.thumbnail(of: SampleShelf.moodboardPicture())
+        thumbnails[folder.id] = NSWorkspace.shared.icon(for: .folder)
         thumbnails[pdf.id] = NSWorkspace.shared.icon(for: .pdf)
         thumbnails[archive.id] = NSWorkspace.shared.icon(for: .zip)
         thumbnails[longName.id] = NSWorkspace.shared.icon(for: .pdf)
@@ -491,6 +560,40 @@ struct SampleShelf {
 
     func shelf(_ items: [ShelfItem]) -> Shelf {
         Shelf(preview: items, thumbnails: thumbnails, texts: texts)
+    }
+
+    /// A ball and its shadow on transparent pixels, as a cut-out looks.
+    static func cutoutPicture() -> CGImage {
+        let ctx = CGContext(data: nil, width: 260, height: 305, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        ctx.setFillColor(CGColor(gray: 0, alpha: 0.35))
+        ctx.fillEllipse(in: CGRect(x: 40, y: 8, width: 180, height: 30))
+        ctx.addEllipse(in: CGRect(x: 10, y: 30, width: 240, height: 240))
+        ctx.clip()
+        let shading = CGGradient(colorsSpace: space, colors: [CGColor(srgbRed: 1, green: 0.62, blue: 0.5, alpha: 1),
+                                                               CGColor(srgbRed: 0.88, green: 0.18, blue: 0.14, alpha: 1),
+                                                               CGColor(srgbRed: 0.4, green: 0.03, blue: 0.05, alpha: 1)] as CFArray,
+                                 locations: [0, 0.45, 1])!
+        ctx.drawRadialGradient(shading, startCenter: CGPoint(x: 95, y: 195), startRadius: 0, endCenter: CGPoint(x: 130, y: 150),
+                               endRadius: 150, options: [.drawsAfterEndLocation])
+        return ctx.makeImage()!
+    }
+
+    /// A collage of window-like pictures on the dark background, the way the moodboard draws them.
+    static func moodboardPicture() -> CGImage {
+        let sizes = [(1672, 1246), (600, 1776), (1200, 800), (2400, 1500), (980, 640), (840, 620), (1512, 982)]
+        let layout = CollageLayout(sizes: sizes.map { CGSize(width: $0.0, height: $0.1) }, width: 600, spacing: 8)
+        let ctx = CGContext(data: nil, width: Int(layout.size.width), height: Int(layout.size.height), bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(Moodboard.Background.dark.color)
+        ctx.fill(CGRect(origin: .zero, size: layout.size))
+        for (i, frame) in layout.frames.enumerated() {
+            let picture = SampleShelf.picture(i, width: sizes[i].0, height: sizes[i].1, dark: i == 5)
+            ctx.draw(picture, in: CGRect(x: frame.minX, y: layout.size.height - frame.maxY, width: frame.width, height: frame.height))
+        }
+        return ctx.makeImage()!
     }
 
     /// A window-like picture: a title bar, a sidebar and lines of text, light or dark.

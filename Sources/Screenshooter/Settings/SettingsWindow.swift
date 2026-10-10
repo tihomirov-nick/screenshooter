@@ -1,10 +1,11 @@
 import AppKit
 import Combine
+import PictureTools
 import ShotCore
 import SwiftUI
 
 enum SettingsTab: String {
-    case general, capture, island, shortcuts, permissions
+    case general, capture, island, pictures, shortcuts, permissions
 }
 
 /// The settings window (one instance).
@@ -52,6 +53,9 @@ struct SettingsView: View {
             IslandSettings()
                 .tabItem { Label(L("Островок"), systemImage: "capsule.tophalf.filled") }
                 .tag(SettingsTab.island)
+            PictureSettings()
+                .tabItem { Label(L("Картинки"), systemImage: "photo.on.rectangle.angled") }
+                .tag(SettingsTab.pictures)
             ShortcutSettings()
                 .tabItem { Label(L("Клавиши"), systemImage: "keyboard") }
                 .tag(SettingsTab.shortcuts)
@@ -66,6 +70,8 @@ struct SettingsView: View {
 
 // MARK: - General
 
+/// The tab's groups follow the family standard: the main settings (the interface language, opening at login, the sound
+/// effects), the updates, then what is Screenshooter's own, the screenshots.
 private struct GeneralSettings: View {
     @AppStorage(PrefKey.saveToFolder) private var saveToFolder = true
     @AppStorage(PrefKey.saveFolder) private var saveFolderPath = ""
@@ -75,10 +81,46 @@ private struct GeneralSettings: View {
     @ObservedObject private var loginItem = Updater.LoginItem.shared
     /// Read again whenever it may have changed: `needsApproval` is not published.
     @State private var needsApproval = false
-    @State private var language = Localization.selected
+    /// The interface language is the app's own `AppleLanguages`, the setting System Settings writes too: read again when
+    /// the window opens and when the user comes back to the app.
+    @State private var language = InterfaceLanguage.saved()
+    @State private var languageNeedsRestart = InterfaceLanguage.needsRestart(running: Localization.current)
 
     var body: some View {
         Form {
+            Section {
+                Picker(selection: Binding(get: { language }, set: { choice in
+                    InterfaceLanguage.save(choice)
+                    refresh()
+                })) {
+                    ForEach(InterfaceLanguage.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Text(L("Язык интерфейса"))
+                    Text(L("При варианте «Как в системе» Screenshooter берёт первый подходящий язык из списка в Системных настройках, раздел «Язык и регион». Новый язык включится после перезапуска"))
+                }
+                if languageNeedsRestart {
+                    LanguageRestartRow()
+                }
+                Toggle(L("Запускать при входе"), isOn: Binding(get: { loginItem.isEnabled }, set: { on in
+                    loginItem.set(on)
+                    needsApproval = loginItem.needsApproval
+                }))
+                if needsApproval {
+                    HStack {
+                        Text(L("Выключено в Системных настройках"))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button(L("Открыть «Объекты входа»")) { loginItem.openSystemSettings() }
+                    }
+                }
+                Toggle(L("Звуковые эффекты"), isOn: $soundEffects)
+                    .help(L("Звук играет при снимке, когда текст распознан, когда что-то легло на полку, скопировано или удалено, и при ошибках. Громкость та же, что у звуков предупреждений в Системных настройках, раздел «Звук»; если там выключены звуковые эффекты интерфейса, звуков нет."))
+            } header: {
+                Text(L("Основные"))
+            }
+
+            UpdateSection()
+
             Section {
                 Toggle(L("Сохранять снимки в папку"), isOn: $saveToFolder)
                 HStack {
@@ -96,60 +138,29 @@ private struct GeneralSettings: View {
                 Picker(L("Формат"), selection: $format) {
                     ForEach(ImageFormat.allCases) { Text($0.title).tag($0.rawValue) }
                 }
+                Toggle(L("Копировать снимок в буфер обмена"), isOn: $copyToClipboard)
+            } header: {
+                Text(L("Снимки"))
             } footer: {
                 Text(saveToFolder
                      ? L("По умолчанию снимки сохраняются на рабочий стол и появляются на полке у выреза экрана.")
                      : L("Снимки хранятся только на полке; оттуда их можно перетащить, скопировать или сохранить."))
                     .foregroundStyle(.secondary)
             }
-
-            Section {
-                Toggle(L("Копировать снимок в буфер обмена"), isOn: $copyToClipboard)
-                Toggle(L("Звуковые эффекты"), isOn: $soundEffects)
-                    .help(L("Звук играет при снимке, когда текст распознан, когда что-то легло на полку, скопировано или удалено, и при ошибках. Громкость та же, что у звуков предупреждений в Системных настройках, раздел «Звук»; если там выключены звуковые эффекты интерфейса, звуков нет."))
-            }
-
-            UpdateSection()
-
-            Section {
-                Toggle(L("Запускать при входе в систему"), isOn: Binding(get: { loginItem.isEnabled }, set: { on in
-                    loginItem.set(on)
-                    needsApproval = loginItem.needsApproval
-                }))
-                if needsApproval {
-                    HStack {
-                        Text(L("Запуск при входе выключен в Системных настройках."))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button(L("Открыть «Объекты входа»")) { loginItem.openSystemSettings() }
-                    }
-                }
-                Picker(L("Язык"), selection: $language) {
-                    ForEach(AppLanguage.allCases) { Text($0.title).tag($0) }
-                }
-                .onChange(of: language) { _, value in Localization.select(value) }
-            } footer: {
-                if language.code != Localization.current {
-                    HStack {
-                        Text(L("Язык сменится после перезапуска."))
-                            .foregroundStyle(.secondary)
-                        Button(L("Перезапустить")) { Permissions.relaunch() }
-                            .buttonStyle(.link)
-                    }
-                }
-            }
         }
         .formStyle(.grouped)
-        .onAppear(perform: refreshLoginItem)
-        // Back from System Settings.
+        .onAppear(perform: refresh)
+        // Back from System Settings, where the login item and the language are set too.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshLoginItem()
+            refresh()
         }
     }
 
-    private func refreshLoginItem() {
+    private func refresh() {
         loginItem.refresh()
         needsApproval = loginItem.needsApproval
+        language = InterfaceLanguage.saved()
+        languageNeedsRestart = InterfaceLanguage.needsRestart(running: Localization.current)
     }
 
     private var folderName: String {
@@ -174,6 +185,41 @@ private struct GeneralSettings: View {
     }
 }
 
+extension InterfaceLanguage {
+    /// A language is named in its own language, so anyone finds theirs.
+    var title: String {
+        switch self {
+        case .system: return L("Как в системе")
+        case .russian: return "Русский"
+        case .english: return "English"
+        }
+    }
+}
+
+/// «Язык сменится после перезапуска» with the button that restarts Screenshooter, under the language. Not while the app is
+/// busy: a restart would cut a capture off or lose edits (the same test the updater uses before it restarts the app).
+private struct LanguageRestartRow: View {
+    var body: some View {
+        HStack {
+            Text(L("Язык сменится после перезапуска"))
+                .foregroundStyle(.secondary)
+            Spacer()
+            // Whether the app is busy is not published: the button looks again every second while the row shows.
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                let busy = Updater.shared.appIsBusy()
+                Button(L("Перезапустить")) { restart() }
+                    .disabled(busy)
+                    .help(busy ? L("Пока идёт снимок, в редакторе есть несохранённые правки или что-то переносится на полку, Screenshooter не перезапускается") : "")
+            }
+        }
+    }
+
+    private func restart() {
+        guard !Updater.shared.appIsBusy() else { return }
+        InterfaceLanguage.relaunch()
+    }
+}
+
 /// The version, automatic checks and installation, a check on request; the island offers what is not installed by itself.
 private struct UpdateSection: View {
     @ObservedObject private var updater = Updater.shared
@@ -182,7 +228,7 @@ private struct UpdateSection: View {
         Section {
             Toggle(isOn: Binding(get: { updater.automaticChecks }, set: { updater.automaticChecks = $0 })) {
                 Text(L("Проверять обновления"))
-                Text(L("Сразу после запуска и потом каждые три часа."))
+                Text(L("Screenshooter смотрит, нет ли новой версии, при запуске, раз в три часа и после пробуждения Mac"))
             }
             Toggle(isOn: Binding(get: { updater.automaticInstall }, set: { updater.automaticInstall = $0 })) {
                 Text(L("Обновлять автоматически"))
@@ -203,6 +249,8 @@ private struct UpdateSection: View {
                 Button(L("Проверить сейчас")) { updater.check(userInitiated: true) }
                     .disabled(busy)
             }
+        } header: {
+            Text(L("Обновления"))
         } footer: {
             if updater.isDevelopmentBuild {
                 Text(L("Эта копия собрана из исходников и сама не обновляется."))
@@ -338,6 +386,53 @@ private struct IslandSettings: View {
                 }
             } footer: {
                 Text(L("Файлы на диске останутся."))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+// MARK: - Pictures
+
+private struct PictureSettings: View {
+    @AppStorage(PrefKey.moodboardBackground) private var background = Moodboard.Background.dark.rawValue
+    @AppStorage(PrefKey.moodboardWidth) private var width = 2400
+    @AppStorage(PrefKey.moodboardSpacing) private var spacing = 24
+
+    var body: some View {
+        Form {
+            Section {
+                Picker(L("Фон"), selection: $background) {
+                    Text(L("Тёмный")).tag(Moodboard.Background.dark.rawValue)
+                    Text(L("Светлый")).tag(Moodboard.Background.light.rawValue)
+                }
+                .pickerStyle(.segmented)
+                Picker(L("Ширина коллажа"), selection: $width) {
+                    ForEach([1600, 2400, 3200, 4800], id: \.self) { Text(L("%@ пикс.", "\($0)")).tag($0) }
+                }
+                Picker(L("Отступы"), selection: $spacing) {
+                    ForEach([0, 8, 16, 24, 32, 48], id: \.self) { Text(L("%@ пикс.", "\($0)")).tag($0) }
+                }
+            } header: {
+                Text(L("Мудборд из папки"))
+            } footer: {
+                Text(L("Перетащите папку на вырез и отпустите над «В мудборд» или выберите папку в меню Screenshooter. До 100 картинок встанут ровной сеткой с одинаковыми отступами, готовый коллаж ляжет на полку и в буфер обмена."))
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                KeyRow(keys: L("⌘-клик"), action: L("добавить карточку к выбранным или убрать"))
+                KeyRow(keys: L("⇧-клик"), action: L("выбрать карточки подряд"))
+                KeyRow(keys: "⌘A", action: L("выбрать все картинки"))
+                KeyRow(keys: "⌘C", action: L("скопировать выбранные разом"))
+            } header: {
+                Text(L("Несколько картинок на полке"))
+            } footer: {
+                Text(L("Каждая картинка ляжет в буфер отдельно, с файлом, поэтому Figma, Pages, Keynote и мессенджеры вставят их все. Перетаскивание тоже несёт все выбранные."))
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                Text(L("Фон убирается у картинки на полке (кнопка на карточке) или у картинки в буфере обмена (меню Screenshooter). Там же распознаётся текст. Всё работает на этом Mac, без сети."))
                     .foregroundStyle(.secondary)
             }
         }

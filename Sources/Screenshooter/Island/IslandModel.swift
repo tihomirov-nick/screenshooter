@@ -13,6 +13,13 @@ enum IslandState: Equatable {
     case open
 }
 
+/// Where a folder dragged over the open shelf goes: onto the shelf as it is (the left half), or into a moodboard
+/// (the right half).
+enum IslandDropZone: Equatable {
+    case shelf
+    case moodboard
+}
+
 /// The island's measures. Everything below the notch keeps one spacing scale (4, 8, 12, 16, 24): 16 pt from the
 /// island's edge to its content, 8 pt between rows, 12 pt between cards and from the notch to the header's zones.
 /// Corners are concentric: a card's radius is the island's bottom radius less the 16 pt margin.
@@ -104,8 +111,16 @@ final class IslandModel {
     var highlightedItemID: UUID?
     /// The card under the pointer.
     var hoveredItemID: UUID?
-    /// The card chosen with a click or the arrow keys: the shelf holds the keyboard for it.
+    /// The card chosen last, with a click or the arrow keys: a ⇧-click chooses the cards from it. The shelf holds the
+    /// keyboard while any card is chosen.
     var selectedItemID: UUID?
+    /// Every chosen card: the one clicked, more with ⌘- and ⇧-clicks, or all the pictures with ⌘A.
+    var selectedItemIDs: Set<UUID> = []
+    /// A folder is dragged over the shelf: it can go onto the shelf or into a moodboard, `dropZone` says which.
+    var dropFolder = false
+    var dropZone: IslandDropZone = .shelf
+    /// The banner's work takes a while (a background coming off, a moodboard): a spinner in place of its symbol.
+    var bannerBusy = false
     /// A short confirmation in the open shelf's header, in place of its title for a moment ("Скопировано").
     var toast: IslandToast?
     /// A new version offered, downloading, installing or failed to install: a row over the cards.
@@ -113,6 +128,14 @@ final class IslandModel {
 
     /// The update row's texts and buttons.
     var updateRow: IslandUpdate? { update.flatMap(IslandUpdate.init) }
+
+    func isSelected(_ id: UUID) -> Bool { selectedItemIDs.contains(id) }
+
+    /// "Выбрано: 3" in the header, in place of its title, while several cards are chosen.
+    var selectionTitle: IslandToast? {
+        guard selectedItemIDs.count > 1 else { return nil }
+        return IslandToast(text: L("Выбрано: %@", "\(selectedItemIDs.count)"), symbol: "checkmark.circle.fill")
+    }
 
     /// The island's size in `state`, the same for the view and for the pointer: the black body without the concave
     /// curves at the top. The open shelf and the banner hug their content.
@@ -147,7 +170,8 @@ final class IslandModel {
     func openWidth(shelf: Shelf) -> CGFloat {
         let p = IslandMetrics.padding
         let count = shelf.items.count
-        let zone = max(headerTitleWidth(count: count), headerButtonsWidth(empty: count == 0), toast?.width ?? 0)
+        let zone = max(headerTitleWidth(count: count), headerButtonsWidth(empty: count == 0), toast?.width ?? 0,
+                       selectionTitle?.width ?? 0)
         var width = metrics.notchWidth + 2 * (IslandMetrics.notchGap + zone + p)
         if count > 0 {
             width = max(width, stripWidth(count: count) + 2 * p)
@@ -185,7 +209,7 @@ final class IslandModel {
     /// are.
     var bannerLayout: (width: CGFloat, textHeight: CGFloat, lines: Int) {
         let p = IslandMetrics.padding
-        let icon = IslandText.symbolWidth(bannerSymbol, size: 13, weight: .semibold) + 6
+        let icon = (bannerBusy ? IslandSpinner.inline : IslandText.symbolWidth(bannerSymbol, size: 13, weight: .semibold)) + 6
         let text = IslandText.width(bannerText, size: 13, weight: .medium)
         let lineHeight: CGFloat = 16
         let minimum = metrics.notchWidth + 2 * 24
@@ -206,9 +230,12 @@ final class IslandModel {
 struct IslandToast: Equatable {
     var text: String
     var symbol: String
+    /// Work under way ("Убираю фон…"): a spinner in place of the symbol, and it stays until the result replaces it.
+    var busy = false
 
     var width: CGFloat {
-        ceil(IslandText.symbolWidth(symbol, size: 13, weight: .semibold) + 6 + IslandText.width(text, size: 13, weight: .semibold))
+        let icon = busy ? IslandSpinner.inline : IslandText.symbolWidth(symbol, size: 13, weight: .semibold)
+        return ceil(icon + 6 + IslandText.width(text, size: 13, weight: .semibold))
     }
 }
 

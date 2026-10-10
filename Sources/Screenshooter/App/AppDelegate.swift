@@ -130,13 +130,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // As wide as the icon plus the menu bar's own margins (`variableLength`), like FaceID's: the two icons stand
         // level and as far apart as the others. A square item would leave a wider gap around it.
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = item.button { StatusIcon.shared.attach(to: button) }
+        if let button = item.button { StatusIcon.attach(to: button) }
         item.button?.toolTip = "Screenshooter"
 
         let menu = NSMenu()
         menu.delegate = self
-        func add(_ title: String, _ action: Selector, shortcutKey: String? = nil) {
-            let menuItem = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        func add(_ title: String, _ action: Selector, shortcutKey: String? = nil, keyEquivalent: String = "") {
+            let menuItem = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
             menuItem.target = self
             menu.addItem(menuItem)
             if let shortcutKey { shortcutItems[shortcutKey] = menuItem }
@@ -145,14 +145,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add(L("Весь экран"), #selector(fullscreenCapture), shortcutKey: PrefKey.shortcutFullscreen)
         add(L("Распознать текст"), #selector(textCapture), shortcutKey: PrefKey.shortcutText)
         menu.addItem(.separator())
+        // The clipboard ones are on only while it holds a picture (see `validateMenuItem`).
+        add(L("Убрать фон у картинки в буфере"), #selector(removeClipboardBackground))
+        add(L("Распознать текст в буфере"), #selector(recognizeClipboardText))
+        add(L("Мудборд из папки…"), #selector(moodboardFromFolder))
+        add(L("Скопировать все картинки папки…"), #selector(copyFolderPictures))
+        menu.addItem(.separator())
         add(L("Показать полку"), #selector(toggleShelf), shortcutKey: PrefKey.shortcutShelf)
         add(L("Открыть папку снимков"), #selector(openFolder))
+        // The app's own part follows the family standard, the same in every app: Settings, updates, About, Quit.
         menu.addItem(.separator())
-        add(L("Настройки…"), #selector(showSettings))
-        add(L("О программе Screenshooter"), #selector(showAbout))
+        add(L("Настройки…"), #selector(showSettings), keyEquivalent: ",")
         add(L("Проверить обновления…"), #selector(checkForUpdates))
+        add(L("О приложении «Screenshooter»"), #selector(showAbout))
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: L("Выйти"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: L("Завершить Screenshooter"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
         item.menu = menu
         statusItem = item
@@ -187,7 +194,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleShelf() { afterMenuCloses { IslandController.shared.toggle() } }
     @objc private func openFolder() { NSWorkspace.shared.open(Prefs.saveToFolder ? Prefs.saveFolder : AppFolders.shelfFiles) }
     @objc func showSettings() { SettingsWindow.show() }
-    @objc private func checkForUpdates() { Updates.checkNow() }
+    @objc func checkForUpdates() { Updates.checkNow() }
+    @objc private func removeClipboardBackground() { PictureCommands.removeBackgroundFromClipboard() }
+    @objc private func recognizeClipboardText() { PictureCommands.recognizeClipboardText() }
+    @objc private func moodboardFromFolder() { PictureCommands.chooseFolderForMoodboard() }
+    @objc private func copyFolderPictures() { PictureCommands.chooseFolderToCopy() }
 
     @objc func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
@@ -231,8 +242,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             },
             open: { item in NSWorkspace.shared.open(item.url) },
             copy: { item in
-                if Self.copy(item) {
-                    island.notify(L("Скопировано"))
+                // A card chosen together with others: all of them, each an item of its own.
+                let batch = island.batch(for: item)
+                if batch.count > 1 ? PictureCommands.copy(batch) : Self.copy(item) {
+                    island.notify(batch.count > 1 ? L("Скопировано: %@", "\(batch.count)") : L("Скопировано"))
                     SoundEffects.play(.copied)
                 } else {
                     SoundEffects.play(.failure)
@@ -272,7 +285,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 SoundEffects.play(.removed)
             },
             select: { item in island.select(item) },
-            update: { command in Updates.perform(command) }
+            update: { command in Updates.perform(command) },
+            removeBackground: { item in PictureCommands.removeBackground(of: item) },
+            selectAllPictures: { island.selectAllPictures() },
+            moodboard: { folders in PictureCommands.moodboard(from: folders) },
+            copyFolderPictures: { folder in PictureCommands.copyPictures(in: folder) }
         )
     }
 
@@ -315,5 +332,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 SoundEffects.play(.copied)
             }
         ))
+    }
+}
+
+extension AppDelegate: NSMenuItemValidation {
+    /// The clipboard items of the menu are on only while the clipboard holds a picture.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(removeClipboardBackground), #selector(recognizeClipboardText):
+            return PictureCommands.clipboardHasPicture
+        default:
+            return true
+        }
     }
 }

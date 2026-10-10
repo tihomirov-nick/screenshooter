@@ -34,6 +34,8 @@ final class IslandController: IslandDropTarget {
     private var dragCountAtMouseDown = 0
     /// The card under the pointer at the last mouse down on the panel, and that mouse down.
     private var pressedCard: (item: ShelfItem, event: NSEvent)?
+    /// The folders the drag over the shelf brings (when it brings only folders), looked up once per drag.
+    private var dragFolders: (sequence: Int, folders: [URL]) = (-1, [])
     private let dragSource = ShelfDragSource()
     /// Opened from the menu or a shortcut: stays until the pointer has been over it (or a click elsewhere).
     private var waitingForPointer = false
@@ -187,21 +189,33 @@ final class IslandController: IslandDropTarget {
         setState(.peek, revertAfter: 2.8)
     }
 
-    /// A short confirmation: in the header of the open shelf, or under the notch.
-    func notify(_ text: String, symbol: String = "checkmark.circle.fill") {
+    /// A short confirmation: in the header of the open shelf, or under the notch. `busy`: work under way ("Убираю
+    /// фон…"), with a spinner; it stays until the next message brings the result.
+    func notify(_ text: String, symbol: String = "checkmark.circle.fill", busy: Bool = false) {
         guard panel != nil else { return }
         if model.state == .open {
-            model.toast = IslandToast(text: text, symbol: symbol)
+            model.toast = IslandToast(text: text, symbol: symbol, busy: busy)
             toastWork?.cancel()
             let work = DispatchWorkItem { [weak self] in self?.model.toast = nil }
             toastWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + (busy ? 30 : 1.6), execute: work)
             return
         }
+        // Work begun in the open shelf and finished after it closed: its spinner must not greet the shelf next time.
+        if model.toast?.busy == true { model.toast = nil }
         model.bannerText = text
         model.bannerSymbol = symbol
         model.bannerActions = []
-        setState(.banner, revertAfter: 1.9)
+        model.bannerBusy = busy
+        setState(.banner, revertAfter: busy ? 30 : 1.9)
+    }
+
+    /// A picture made here (a cut-out, a moodboard) landed on the shelf: its card lights up in the open shelf and the
+    /// message takes the header; otherwise the message shows under the notch.
+    func present(_ item: ShelfItem, saying text: String, symbol: String = "checkmark.circle.fill") {
+        guard panel != nil else { return }
+        if model.state == .open { flashCard(item.id) }
+        notify(text, symbol: symbol)
     }
 
     /// A new version under the notch with its buttons. It stays a few seconds, and as long as the pointer is over it;
@@ -211,6 +225,7 @@ final class IslandController: IslandDropTarget {
         model.bannerText = text
         model.bannerSymbol = symbol
         model.bannerActions = actions
+        model.bannerBusy = false
         setState(.banner, revertAfter: 8)
     }
 
@@ -362,7 +377,7 @@ final class IslandController: IslandDropTarget {
             }
         case .open:
             // The chosen card left the shelf (its button, the menu, the shelf cleared): nothing holds the keyboard.
-            if let id = model.selectedItemID, !Shelf.shared.items.contains(where: { $0.id == id }) { deselect() }
+            if !model.selectedItemIDs.isEmpty { pruneSelection() }
             // The end of a drag does not always reach the island (the mouse up that ends a card's way out of
             // the shelf never gets to the monitors): no button held, no drag.
             if NSEvent.pressedMouseButtons == 0 {
@@ -437,27 +452,43 @@ final class IslandController: IslandDropTarget {
         return false
     }
 
+    /// A card chosen together with others takes them all along: the pressed one under the pointer, two more fanned out
+    /// behind it, the rest without a picture of their own.
     private func beginDrag(_ item: ShelfItem, from event: NSEvent) {
         guard let view = panel?.contentView else { return }
-        let writer: NSPasteboardWriting
-        if item.kind == .text {
-            guard let text = Shelf.text(of: item) else { return }
-            writer = text as NSString
-        } else {
-            writer = item.url as NSURL
-        }
-        let renderer = ImageRenderer(content: ShelfDragPreview(item: item, thumbnail: Shelf.shared.thumbnails[item.id],
-                                                               text: Shelf.shared.texts[item.id]))
-        renderer.scale = view.window?.backingScaleFactor ?? 2
-        let image = renderer.nsImage ?? NSWorkspace.shared.icon(forFile: item.url.path)
+        let cards = [item] + batch(for: item).filter { $0.id != item.id }
         let point = view.convert(event.locationInWindow, from: nil)
-        let draggingItem = NSDraggingItem(pasteboardWriter: writer)
-        draggingItem.setDraggingFrame(NSRect(x: point.x - image.size.width / 2, y: point.y - image.size.height / 2,
-                                             width: image.size.width, height: image.size.height), contents: image)
+        var draggingItems: [NSDraggingItem] = []
+        var frame = NSRect.zero
+        for card in cards {
+            let writer: NSPasteboardWriting
+            if card.kind == .text {
+                guard let text = Shelf.text(of: card) else { continue }
+                writer = text as NSString
+            } else {
+                writer = card.url as NSURL
+            }
+            let draggingItem = NSDraggingItem(pasteboardWriter: writer)
+            let shown = draggingItems.count
+            if shown < 3 {
+                let renderer = ImageRenderer(content: ShelfDragPreview(item: card, thumbnail: Shelf.shared.thumbnails[card.id],
+                                                                       text: Shelf.shared.texts[card.id]))
+                renderer.scale = view.window?.backingScaleFactor ?? 2
+                let image = renderer.nsImage ?? NSWorkspace.shared.icon(forFile: card.url.path)
+                let step = CGFloat(shown) * 8
+                frame = NSRect(x: point.x - image.size.width / 2 + step, y: point.y - image.size.height / 2 - step,
+                               width: image.size.width, height: image.size.height)
+                draggingItem.setDraggingFrame(frame, contents: image)
+            } else {
+                draggingItem.setDraggingFrame(frame, contents: nil)
+            }
+            draggingItems.append(draggingItem)
+        }
+        guard !draggingItems.isEmpty else { return }
         draggingFromShelf = true
         // The card is on its way into another app: the keyboard goes back there too.
         deselect()
-        view.beginDraggingSession(with: [draggingItem], event: event, source: dragSource)
+        view.beginDraggingSession(with: draggingItems, event: event, source: dragSource)
     }
 
     /// While the island is not closed, checks the pointer a few times a second: over the panel itself the
@@ -486,9 +517,58 @@ final class IslandController: IslandDropTarget {
     // leaving the pointer there, never takes the keyboard from the app being typed in. Esc, a click elsewhere
     // or the shelf closing order the panel out, which hands the keyboard back to that app.
 
-    /// A click on a card chooses it.
+    /// A click on a card chooses it alone. With ⌘ it joins the chosen cards or leaves them; with ⇧ the cards from the
+    /// one chosen last up to it join, as in Finder.
     func select(_ item: ShelfItem) {
-        model.selectedItemID = item.id
+        let items = Shelf.shared.items
+        let flags = NSEvent.modifierFlags.intersection([.command, .shift])
+        if flags.contains(.shift), let anchor = model.selectedItemID,
+           let from = items.firstIndex(where: { $0.id == anchor }), let to = items.firstIndex(where: { $0.id == item.id }) {
+            model.selectedItemIDs.formUnion(items[min(from, to)...max(from, to)].map(\.id))
+        } else if flags.contains(.command), model.isSelected(item.id) {
+            model.selectedItemIDs.remove(item.id)
+            pruneSelection()
+            return
+        } else if flags.contains(.command) {
+            model.selectedItemIDs.insert(item.id)
+            model.selectedItemID = item.id
+        } else {
+            model.selectedItemIDs = [item.id]
+            model.selectedItemID = item.id
+        }
+        takeKeyboard()
+    }
+
+    /// Every picture on the shelf, chosen together (⌘A, the card's menu).
+    func selectAllPictures() {
+        let pictures = Shelf.shared.items.filter { $0.kind == .image }
+        guard let first = pictures.first else { return }
+        model.selectedItemIDs = Set(pictures.map(\.id))
+        if !pictures.contains(where: { $0.id == model.selectedItemID }) { model.selectedItemID = first.id }
+        takeKeyboard()
+    }
+
+    /// The chosen cards in the shelf's order when `item` is one of several chosen; otherwise `item` alone.
+    func batch(for item: ShelfItem) -> [ShelfItem] {
+        guard model.selectedItemIDs.count > 1, model.isSelected(item.id) else { return [item] }
+        return Shelf.shared.items.filter { model.isSelected($0.id) }
+    }
+
+    /// Cards that left the shelf (their button, the menu, the shelf cleared) are no longer chosen; with none left,
+    /// nothing holds the keyboard.
+    private func pruneSelection() {
+        let items = Shelf.shared.items
+        let kept = model.selectedItemIDs.intersection(items.map(\.id))
+        guard let first = items.first(where: { kept.contains($0.id) }) else {
+            deselect()
+            return
+        }
+        if kept != model.selectedItemIDs { model.selectedItemIDs = kept }
+        if let id = model.selectedItemID, kept.contains(id) { return }
+        model.selectedItemID = first.id
+    }
+
+    private func takeKeyboard() {
         let keyPanel = self.keyPanel ?? IslandKeyPanel()
         keyPanel.onKey = { [weak self] event in self?.key(event) ?? true }
         // Another app took the keyboard (⌘⇥, a click into its window): the card is no longer chosen.
@@ -504,12 +584,13 @@ final class IslandController: IslandDropTarget {
 
     private func deselect() {
         model.selectedItemID = nil
+        model.selectedItemIDs = []
         keyPanel?.orderOut(nil)
     }
 
-    /// ⌘C copies the chosen card, ⌫ takes it away the way its quick button does, the arrows choose the card next to
-    /// it, Return opens it as a double click does, Esc lets go of it. Every other key is swallowed: ⌘Q or ⌘W must not
-    /// reach this app's menu.
+    /// ⌘C copies the chosen cards, ⌘A chooses every picture, ⌫ takes the chosen cards away the way their quick buttons
+    /// do, the arrows choose the card next to the last one, Return opens it as a double click does, Esc lets go. Every
+    /// other key is swallowed: ⌘Q or ⌘W must not reach this app's menu.
     private func key(_ event: NSEvent) -> Bool {
         let items = Shelf.shared.items
         guard let id = model.selectedItemID, let index = items.firstIndex(where: { $0.id == id }) else {
@@ -519,14 +600,22 @@ final class IslandController: IslandDropTarget {
         let item = items[index]
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let code = Int(event.keyCode)
-        if flags == .command, Self.isCopyKey(event) {
+        if flags == .command, Self.isKey(event, "c", kVK_ANSI_C) {
             actions?.copy(item)
+        } else if flags == .command, Self.isKey(event, "a", kVK_ANSI_A) {
+            selectAllPictures()
         } else if flags.isEmpty, code == kVK_Delete || code == kVK_ForwardDelete {
+            let chosen = batch(for: item)
             deselect()
-            if item.isCapture { actions?.trash(item) } else { actions?.remove(item) }
+            for card in chosen {
+                if card.isCapture { actions?.trash(card) } else { actions?.remove(card) }
+            }
         } else if flags.isEmpty, code == kVK_LeftArrow || code == kVK_RightArrow {
             let next = index + (code == kVK_LeftArrow ? -1 : 1)
-            if items.indices.contains(next) { model.selectedItemID = items[next].id }
+            if items.indices.contains(next) {
+                model.selectedItemID = items[next].id
+                model.selectedItemIDs = [items[next].id]
+            }
         } else if flags.isEmpty, code == kVK_Return || code == kVK_ANSI_KeypadEnter {
             deselect()
             if item.kind == .image { actions?.edit(item) } else { actions?.open(item) }
@@ -536,12 +625,12 @@ final class IslandController: IslandDropTarget {
         return true
     }
 
-    /// The C key: by its letter, or by its place with a non-Latin layout.
-    private static func isCopyKey(_ event: NSEvent) -> Bool {
+    /// A letter key: by its letter, or by its place with a non-Latin layout.
+    private static func isKey(_ event: NSEvent, _ letter: String, _ code: Int) -> Bool {
         if let chars = event.charactersIgnoringModifiers?.lowercased(), chars.unicodeScalars.allSatisfy(\.isASCII) {
-            return chars == "c"
+            return chars == letter
         }
-        return Int(event.keyCode) == kVK_ANSI_C
+        return Int(event.keyCode) == code
     }
 
     // MARK: - Dropping
@@ -550,6 +639,13 @@ final class IslandController: IslandDropTarget {
         let takes = !draggingFromShelf && Shelf.canTake(info.draggingPasteboard)
         if takes, model.state != .open { open() }
         if model.dropTargeted != takes { model.dropTargeted = takes }
+        // A folder: onto the shelf left of the notch's middle, into a moodboard right of it.
+        let folder = takes && !folders(in: info).isEmpty
+        if model.dropFolder != folder { model.dropFolder = folder }
+        if folder {
+            let zone: IslandDropZone = NSEvent.mouseLocation.x < centerX ? .shelf : .moodboard
+            if model.dropZone != zone { model.dropZone = zone }
+        }
         // In or out: a card on its way out of the shelf grows the island too, until it leaves.
         if !model.dragOver { model.dragOver = true }
         return takes ? .copy : []
@@ -557,20 +653,29 @@ final class IslandController: IslandDropTarget {
 
     func dragExited() {
         if model.dropTargeted { model.dropTargeted = false }
+        if model.dropFolder { model.dropFolder = false }
         if model.dragOver { model.dragOver = false }
     }
 
     func drop(_ info: NSDraggingInfo) -> Bool {
+        let moodboard = model.dropFolder && model.dropZone == .moodboard
         model.dropTargeted = false
         model.dragOver = false
+        model.dropFolder = false
         guard !draggingFromShelf, Shelf.canTake(info.draggingPasteboard) else { return false }
+        if moodboard {
+            let folders = folders(in: info)
+            if !folders.isEmpty {
+                actions?.moodboard(folders)
+                return true
+            }
+        }
         receiving += 1
         Shelf.shared.add(from: info.draggingPasteboard) { [weak self] items in
             guard let self else { return }
             self.receiving -= 1
             if let first = items.first {
                 SoundEffects.play(.added)
-                StatusIcon.shared.play(.bounce)
                 self.flashCard(first.id)
             } else {
                 SoundEffects.play(.failure)
@@ -578,6 +683,23 @@ final class IslandController: IslandDropTarget {
             }
         }
         return true
+    }
+}
+
+extension IslandController {
+    /// The folders a drag brings when it brings nothing else (packages such as Keynote documents are files).
+    fileprivate func folders(in info: NSDraggingInfo) -> [URL] {
+        if dragFolders.sequence == info.draggingSequenceNumber { return dragFolders.folders }
+        let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self],
+                                                       options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        let folders = !urls.isEmpty && urls.allSatisfy(Self.isFolder) ? urls : []
+        dragFolders = (info.draggingSequenceNumber, folders)
+        return folders
+    }
+
+    nonisolated static func isFolder(_ url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey]) else { return false }
+        return values.isDirectory == true && values.isPackage != true
     }
 }
 

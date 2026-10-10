@@ -47,7 +47,6 @@ final class CaptureController {
             return
         }
         starting = true
-        StatusIcon.shared.capturing = true
         IslandController.shared.close()
         let front = NSWorkspace.shared.frontmostApplication
         previousApp = front?.processIdentifier == getpid() ? nil : front
@@ -76,7 +75,6 @@ final class CaptureController {
                 self.session = session
                 session.begin()
             } catch {
-                StatusIcon.shared.capturing = false
                 report(error)
             }
         }
@@ -113,16 +111,13 @@ final class CaptureController {
         ScreenCapturer.shared.warmUp()
         returnFocus()
         guard let selection else {
-            StatusIcon.shared.capturing = false
             settle()
             return
         }
 
         processing += 1
         Task { @MainActor in
-            // The icon keeps pulsing until the picture is taken or the text is read.
             defer {
-                StatusIcon.shared.capturing = false
                 processing -= 1
                 settle()
             }
@@ -165,7 +160,6 @@ final class CaptureController {
     /// Saves, copies and puts the capture on the shelf. Encoding runs off the main thread.
     func deliver(_ image: CGImage, scale: CGFloat) {
         SoundEffects.play(.shutter)
-        StatusIcon.shared.play(.shot)
         let copy = Prefs.copyToClipboard
         processing += 1
         Task.detached(priority: .userInitiated) {

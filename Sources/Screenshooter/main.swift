@@ -13,12 +13,19 @@ MainActor.assumeIsolated {
     }
     if let i = arguments.firstIndex(of: "--render-island"), i + 1 < arguments.count {
         app.setActivationPolicy(.prohibited)
-        PreviewRenderer.renderIsland(into: URL(fileURLWithPath: arguments[i + 1], isDirectory: true))
+        // --only pic- : just the states whose names start with it, on a sheet of their own.
+        let only = arguments.firstIndex(of: "--only").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
+        PreviewRenderer.renderIsland(into: URL(fileURLWithPath: arguments[i + 1], isDirectory: true), only: only)
         exit(0)
     }
     if let i = arguments.firstIndex(of: "--render-island-motion"), i + 1 < arguments.count {
         app.setActivationPolicy(.prohibited)
         PreviewRenderer.renderIslandMotion(into: URL(fileURLWithPath: arguments[i + 1], isDirectory: true))
+        exit(0)
+    }
+    if let i = arguments.firstIndex(of: "--render-status-icon"), i + 1 < arguments.count {
+        app.setActivationPolicy(.prohibited)
+        PreviewRenderer.renderStatusIcon(into: URL(fileURLWithPath: arguments[i + 1], isDirectory: true))
         exit(0)
     }
     if let i = arguments.firstIndex(of: "--render-windows"), i + 1 < arguments.count {

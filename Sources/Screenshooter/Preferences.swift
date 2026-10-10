@@ -1,4 +1,5 @@
 import AppKit
+import PictureTools
 import ShotCore
 
 /// Settings keys. Views bind to them with `@AppStorage`; the rest of the app reads `Prefs`.
@@ -28,6 +29,9 @@ enum PrefKey {
     static let shortcutFullscreen = "shortcut.fullscreen"
     static let shortcutText = "shortcut.text"
     static let shortcutShelf = "shortcut.shelf"
+    static let moodboardBackground = "moodboardBackground"
+    static let moodboardWidth = "moodboardWidth"
+    static let moodboardSpacing = "moodboardSpacing"
 }
 
 enum ImageFormat: String, CaseIterable, Identifiable {
@@ -75,6 +79,9 @@ enum Prefs {
             PrefKey.islandPeek: true,
             PrefKey.islandScreen: IslandScreenChoice.automatic.rawValue,
             PrefKey.shelfLimit: 30,
+            PrefKey.moodboardBackground: Moodboard.Background.dark.rawValue,
+            PrefKey.moodboardWidth: 2400,
+            PrefKey.moodboardSpacing: 24,
         ])
     }
 
@@ -93,6 +100,13 @@ enum Prefs {
     static var islandOpenOnHover: Bool { defaults.bool(forKey: PrefKey.islandOpenOnHover) }
     static var islandPeek: Bool { defaults.bool(forKey: PrefKey.islandPeek) }
     static var shelfLimit: Int { max(5, defaults.integer(forKey: PrefKey.shelfLimit)) }
+
+    /// The moodboard's background, width and gaps.
+    static var moodboard: Moodboard.Options {
+        Moodboard.Options(width: min(8000, max(800, defaults.integer(forKey: PrefKey.moodboardWidth))),
+                          spacing: min(200, max(0, defaults.integer(forKey: PrefKey.moodboardSpacing))),
+                          background: Moodboard.Background(rawValue: defaults.string(forKey: PrefKey.moodboardBackground) ?? "") ?? .dark)
+    }
 
     static var imageFormat: ImageFormat {
         ImageFormat(rawValue: defaults.string(forKey: PrefKey.imageFormat) ?? "") ?? .png

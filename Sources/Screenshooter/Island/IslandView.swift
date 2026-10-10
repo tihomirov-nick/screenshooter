@@ -17,6 +17,13 @@ struct IslandActions {
     var trash: (ShelfItem) -> Void
     var select: (ShelfItem) -> Void
     var update: (UpdateCommand) -> Void
+    /// The picture's objects without the background: a new card, and on the clipboard.
+    var removeBackground: (ShelfItem) -> Void
+    var selectAllPictures: () -> Void
+    /// One collage of the pictures in these folders: a new card, and on the clipboard.
+    var moodboard: ([URL]) -> Void
+    /// Every picture in the folder on the clipboard, each an item of its own.
+    var copyFolderPictures: (URL) -> Void
 }
 
 /// The island's colours, the same in every state.
@@ -383,9 +390,14 @@ private struct BannerContent: View {
             Color.clear.frame(height: m.notchHeight + IslandMetrics.rowGap)
             HStack(spacing: IslandMetrics.bannerButtonGap) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Image(systemName: model.bannerSymbol)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(IslandStyle.tint(for: model.bannerSymbol))
+                    if model.bannerBusy {
+                        IslandSpinner(side: IslandSpinner.inline)
+                            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4.5 }
+                    } else {
+                        Image(systemName: model.bannerSymbol)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(IslandStyle.tint(for: model.bannerSymbol))
+                    }
                     Text(model.bannerText)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white)
@@ -424,7 +436,8 @@ private struct OpenContent: View {
     var body: some View {
         let m = model.metrics, p = IslandMetrics.padding
         VStack(spacing: 0) {
-            ShelfHeader(count: shelf.items.count, toast: model.toast, notchWidth: m.notchWidth, actions: actions)
+            ShelfHeader(count: shelf.items.count, toast: model.toast, selection: model.selectionTitle,
+                        notchWidth: m.notchWidth, actions: actions)
                 .frame(width: width, height: m.notchHeight)
             Color.clear.frame(height: IslandMetrics.rowGap)
             if let row = model.updateRow {
@@ -444,7 +457,7 @@ private struct OpenContent: View {
                         .opacity(model.dropTargeted ? 0.15 : 1)
                 }
                 if model.dropTargeted {
-                    DropTarget()
+                    DropTarget(zone: model.dropFolder ? model.dropZone : nil)
                         .islandProbe("drop")
                         .padding(.horizontal, p)
                         .transition(.opacity)
@@ -464,6 +477,8 @@ private struct OpenContent: View {
 private struct ShelfHeader: View {
     let count: Int
     let toast: IslandToast?
+    /// "Выбрано: 3" while several cards are chosen.
+    let selection: IslandToast?
     let notchWidth: CGFloat
     let actions: IslandActions
 
@@ -472,10 +487,24 @@ private struct ShelfHeader: View {
             ZStack(alignment: .leading) {
                 if let toast {
                     HStack(spacing: 6) {
-                        Image(systemName: toast.symbol)
-                            .foregroundStyle(IslandStyle.tint(for: toast.symbol))
+                        if toast.busy {
+                            IslandSpinner(side: IslandSpinner.inline)
+                        } else {
+                            Image(systemName: toast.symbol)
+                                .foregroundStyle(IslandStyle.tint(for: toast.symbol))
+                        }
                         Text(toast.text)
                             .foregroundStyle(.white)
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .transition(.opacity)
+                } else if let selection {
+                    HStack(spacing: 6) {
+                        Image(systemName: selection.symbol)
+                            .foregroundStyle(IslandStyle.accent)
+                        Text(selection.text)
+                            .foregroundStyle(.white)
+                            .contentTransition(.numericText())
                     }
                     .font(.system(size: 13, weight: .semibold))
                     .transition(.opacity)
@@ -501,6 +530,7 @@ private struct ShelfHeader: View {
             .lineLimit(1)
             .islandProbe("header.left")
             .animation(.easeOut(duration: 0.2), value: toast)
+            .animation(.easeOut(duration: 0.2), value: selection)
             Spacer(minLength: notchWidth + 2 * IslandMetrics.notchGap)
             HStack(spacing: 4) {
                 HeaderButton(help: L("Умный снимок"), action: actions.capture) {
@@ -575,7 +605,9 @@ private struct ShelfStrip: View {
         ForEach(shelf.items) { item in
             ShelfCard(item: item, thumbnail: shelf.thumbnails[item.id], text: shelf.texts[item.id],
                       hovering: model.hoveredItemID == item.id, highlighted: model.highlightedItemID == item.id,
-                      selected: model.selectedItemID == item.id, actions: actions) { inside in
+                      selected: model.isSelected(item.id),
+                      multiSelected: model.isSelected(item.id) && model.selectedItemIDs.count > 1,
+                      actions: actions) { inside in
                 if inside {
                     model.hoveredItemID = item.id
                 } else if model.hoveredItemID == item.id {
@@ -607,23 +639,48 @@ private struct EmptyShelf: View {
     }
 }
 
-/// Files or text are dragged over the shelf: where they will go.
+/// Files or text are dragged over the shelf: where they will go. A folder can go onto the shelf (the left half) or
+/// into a moodboard (the right half), and the half under the pointer lights up.
 private struct DropTarget: View {
+    /// For a folder: the half under the pointer.
+    let zone: IslandDropZone?
+
     var body: some View {
+        if let zone {
+            HStack(spacing: IslandMetrics.cardSpacing) {
+                DropZone(symbol: "plus.circle.fill", text: L("На полку"), lit: zone == .shelf)
+                DropZone(symbol: "rectangle.3.group.fill", text: L("В мудборд"), lit: zone == .moodboard)
+            }
+            .animation(.easeOut(duration: 0.12), value: zone)
+        } else {
+            DropZone(symbol: "plus.circle.fill", text: L("Отпустите, чтобы положить на полку"), lit: nil)
+        }
+    }
+}
+
+/// A dashed plate with what a drop there does. `lit`: nil for the only place, otherwise whether the pointer is over it.
+private struct DropZone: View {
+    let symbol: String
+    let text: String
+    let lit: Bool?
+
+    var body: some View {
+        let on = lit ?? true
         // Nearly opaque, so the cards it covers do not show through its words.
         RoundedRectangle(cornerRadius: IslandMetrics.cardRadius, style: .continuous)
-            .fill(Color(white: 0.07).opacity(0.94))
+            .fill(Color(white: lit == true ? 0.13 : 0.07).opacity(0.94))
             .overlay {
                 RoundedRectangle(cornerRadius: IslandMetrics.cardRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                    .strokeBorder(Color.white.opacity(lit == nil ? 0.5 : (on ? 0.85 : 0.3)),
+                                  style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
             }
             .overlay {
                 HStack(spacing: 6) {
-                    Image(systemName: "plus.circle.fill")
-                    Text(L("Отпустите, чтобы положить на полку"))
+                    Image(systemName: symbol)
+                    Text(text)
                 }
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(.white.opacity(on ? 1 : 0.55))
                 .lineLimit(1)
             }
     }
@@ -640,6 +697,8 @@ private struct ShelfCard: View {
     let highlighted: Bool
     /// Chosen with a click or the arrow keys, as in Finder: a lighter card with a blue ring, the caption on blue.
     let selected: Bool
+    /// Chosen together with other cards: copying it copies them all.
+    let multiSelected: Bool
     let actions: IslandActions
     let hovered: (Bool) -> Void
     @GestureState private var pressed = false
@@ -676,6 +735,13 @@ private struct ShelfCard: View {
                         .strokeBorder(IslandStyle.accent, lineWidth: 2)
                 }
             }
+            .overlay(alignment: .topLeading) {
+                if hovering, item.kind == .image {
+                    CardButton(symbol: "person.and.background.dotted", help: L("Убрать фон")) { actions.removeBackground(item) }
+                        .padding(8)
+                        .transition(.opacity)
+                }
+            }
             .overlay(alignment: .topTrailing) {
                 if hovering {
                     // A capture of this app goes to the Trash; anything brought from elsewhere only leaves the shelf.
@@ -693,7 +759,7 @@ private struct ShelfCard: View {
             .overlay(alignment: .bottom) {
                 if hovering {
                     HStack(spacing: 8) {
-                        CardButton(symbol: "doc.on.doc", help: L("Скопировать")) { actions.copy(item) }
+                        CardButton(symbol: "doc.on.doc", help: copyTitle) { actions.copy(item) }
                         switch item.kind {
                         case .image:
                             CardButton(symbol: "pencil.tip.crop.circle", help: L("Редактировать")) { actions.edit(item) }
@@ -739,8 +805,9 @@ private struct ShelfCard: View {
                 Button(L("Редактировать")) { actions.edit(item) }
                 Button(L("Открыть")) { actions.open(item) }
                 Divider()
-                Button(L("Скопировать")) { actions.copy(item) }
+                Button(copyTitle) { actions.copy(item) }
                 Button(L("Скопировать текст с картинки")) { actions.copyText(item) }
+                Button(L("Убрать фон")) { actions.removeBackground(item) }
                 Button(L("Показать в Finder")) { actions.reveal(item) }
                 if item.shelfOnly {
                     Button(L("Сохранить в папку снимков")) { actions.keep(item) }
@@ -748,13 +815,20 @@ private struct ShelfCard: View {
             case .file:
                 Button(L("Открыть")) { actions.open(item) }
                 Divider()
-                Button(L("Скопировать")) { actions.copy(item) }
+                Button(copyTitle) { actions.copy(item) }
                 Button(L("Показать в Finder")) { actions.reveal(item) }
+                if item.isFolder {
+                    Divider()
+                    Button(L("Мудборд из папки")) { actions.moodboard([item.url]) }
+                    Button(L("Скопировать все картинки папки")) { actions.copyFolderPictures(item.url) }
+                }
             case .text:
                 Button(L("Открыть")) { actions.open(item) }
                 Divider()
-                Button(L("Скопировать")) { actions.copy(item) }
+                Button(copyTitle) { actions.copy(item) }
             }
+            Divider()
+            Button(L("Выбрать все картинки")) { actions.selectAllPictures() }
             Divider()
             Button(L("Убрать с полки")) { actions.remove(item) }
             if item.kind != .text {
@@ -789,6 +863,9 @@ private struct ShelfCard: View {
                 .padding(.vertical, 8)
         }
     }
+
+    /// Copying a card chosen together with others copies them all.
+    private var copyTitle: String { multiSelected ? L("Скопировать выбранные") : L("Скопировать") }
 
     private var caption: String {
         if item.kind == .file { return item.url.lastPathComponent }
@@ -910,14 +987,17 @@ private struct UpdateRow: View {
 }
 
 /// A ring turning while the new version is put in place.
-private struct IslandSpinner: View {
+struct IslandSpinner: View {
+    /// Next to 13 pt text, in place of a symbol (a banner, the header's confirmation).
+    static let inline: CGFloat = 14
+    var side: CGFloat = 16
     @State private var turning = false
 
     var body: some View {
         Circle()
             .trim(from: 0.1, to: 0.8)
-            .stroke(Color.white.opacity(0.85), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-            .frame(width: 16, height: 16)
+            .stroke(Color.white.opacity(0.85), style: StrokeStyle(lineWidth: side < 16 ? 1.8 : 2, lineCap: .round))
+            .frame(width: side, height: side)
             .rotationEffect(.degrees(turning ? 360 : 0))
             .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: turning)
             .onAppear { turning = true }

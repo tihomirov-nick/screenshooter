@@ -32,6 +32,12 @@ struct ShelfItem: Identifiable, Codable, Hashable {
     var revision = 0
 
     var name: String { url.deletingPathExtension().lastPathComponent }
+
+    /// A folder (not a package such as a Keynote document): its pictures make a moodboard.
+    var isFolder: Bool {
+        guard kind == .file, url.hasDirectoryPath else { return false }
+        return !(UTType(filenameExtension: url.pathExtension)?.conforms(to: .package) ?? false)
+    }
 }
 
 extension ShelfItem {
@@ -207,6 +213,26 @@ final class Shelf {
                 done([item])
             }
         }
+    }
+
+    /// A picture made here (a cut-out, a moodboard): its PNG in the shelf's folder under `name`, in front of the shelf.
+    func addPicture(_ png: Data, named name: String, done: @escaping (ShelfItem?) -> Void) {
+        let folder = AppFolders.shelfFiles
+        DispatchQueue.global(qos: .userInitiated).async {
+            let url = Self.uniqueURL(in: folder, name: Self.safeName(name) + ".png")
+            let item = (try? png.write(to: url, options: .atomic)) != nil ? Self.prepare(url, folder: folder) : nil
+            DispatchQueue.main.async {
+                if let item { self.insert([item]) }
+                done(item)
+            }
+        }
+    }
+
+    /// Without the characters a file name cannot have.
+    nonisolated private static func safeName(_ name: String) -> String {
+        let cleaned = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(cleaned.prefix(120))
     }
 
     /// Files that apps write only on request (attachments from Mail, photos from Photos, pictures from

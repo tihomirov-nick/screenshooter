@@ -31,10 +31,15 @@ let package = Package(
             dependencies: ["ShotCore"],
             path: "Sources/AnnotationEditor"
         ),
+        // Pictures and the clipboard: background removal, moodboards, several pictures copied at once (no UI)
+        .target(
+            name: "PictureTools",
+            path: "Sources/PictureTools"
+        ),
         // The menu bar app with the capture overlay and the notch shelf
         .executableTarget(
             name: "Screenshooter",
-            dependencies: ["ShotCore", "Detection", "AnnotationEditor"],
+            dependencies: ["ShotCore", "Detection", "AnnotationEditor", "PictureTools"],
             path: "Sources/Screenshooter"
         ),
         // Command line tool for checking region detection on the live screen without the UI
@@ -57,6 +62,11 @@ let package = Package(
             name: "DetectionTests",
             dependencies: ["Detection"],
             path: "Tests/DetectionTests"
+        ),
+        .testTarget(
+            name: "PictureToolsTests",
+            dependencies: ["PictureTools"],
+            path: "Tests/PictureToolsTests"
         ),
     ]
 )

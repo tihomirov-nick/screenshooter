@@ -5,10 +5,9 @@
 // The icon is the app's mark drawn large, white on the black body: flat and strictly black and white, like the other
 // apps of the family, with no greys, gradients or shadows. The mark is a selection: a frame of strokes with rounded
 // corners and a plus in place of its bottom right corner, in the proportions of the user's sample. The drawing is
-// StatusIcon.selectionPaths at rest and without the pixel grid, with one addition: the strokes' straight ends get
-// slightly rounded corners, as on the sample. The line is a tenth of the frame's side, as on the sample, a little
-// thicker than the corners of FaceID's icon, and the mark is about as big as FaceID's face, its box in the middle of
-// the body.
+// StatusIcon.selectionPaths without the pixel grid, with one addition: the strokes' straight ends get slightly rounded
+// corners, as on the sample. The line is a tenth of the frame's side, as on the sample. The mark's box takes 80% of the
+// tile, as big as the marks of the other apps of the family, in the middle of the body and clear of its rounded corners.
 import AppKit
 
 let bodyColor: (red: CGFloat, green: CGFloat, blue: CGFloat) = (0, 0, 0)
@@ -23,15 +22,18 @@ let selectionReach: CGFloat = 0.243     // StatusIcon.Selection.reach
 let selectionRadius: CGFloat = 0.107    // StatusIcon.Selection.radius
 let selectionLine: CGFloat = 0.0997     // StatusIcon.Selection.line
 
-/// The selection on the flat drawing, whose body is the 824 px square at 100...924 of 1024: 547 px from the outer
-/// edges of the left and top lines to the plus's ends (680 px of the Icon Composer tile, about as much as FaceID's face
-/// and Subline's lines take), in lines of 42.2 px (52 px on the tile). Its box sits in the middle of the body.
-let selectionSide: CGFloat = 547
+/// The selection on the flat drawing, whose body is the 824 px square at 100...924 of 1024: its box takes `tileFill` of
+/// the body, 659 px from the outer edges of the left and top lines to the plus's ends (819 px of the Icon Composer
+/// tile), in lines of 50.8 px (63 px on the tile). Its box sits in the middle of the body. The frame's three corners
+/// come closest to the body's rounded corners, and they stay 72 px clear of them, 9% of the body's side (measured on
+/// AppIcon-1024.png).
+let tileFill: CGFloat = 0.8
+let selectionSide: CGFloat = tileFill * 824
 let selectionLineWidth = selectionLine * selectionSide / (1 + selectionReach + selectionLine / 2)
 /// The corners of the strokes' ends: rounded by an eighth of the line.
 let endRounding: CGFloat = 0.125
 
-/// StatusIcon.selectionPaths at rest and without the pixel grid, in a square of `side` pixels with y growing down,
+/// StatusIcon.selectionPaths without the pixel grid, in a square of `side` pixels with y growing down,
 /// the frame's strokes and the plus in one path to be filled. With `rounding`, the strokes are that much shorter at
 /// each end and that much thinner on each side, to be grown back by stroking the path `2 * rounding` wide with round
 /// joins: the corners of their ends come out round and everything else where it was.

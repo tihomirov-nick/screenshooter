@@ -44,46 +44,86 @@ enum PreviewRenderer {
         // The island in every state and its motion, in folders of their own.
         renderIsland(into: folder.appendingPathComponent("island", isDirectory: true))
         renderIslandMotion(into: folder.appendingPathComponent("island-motion", isDirectory: true))
-        writeStatusIconFrames(into: folder)
+        renderStatusIcon(into: folder)
     }
 
-    /// The menu bar icon at rest and through each of its motions, white on a dark menu bar, one strip each.
-    private static func writeStatusIconFrames(into folder: URL) {
-        let strips: [(String, [NSImage])] = [
-            ("rest", [StatusIcon.image()]),
-            ("shot", stride(from: 0.0, through: 1.0, by: 0.125).map { StatusIcon.image(.init(shot: StatusIcon.ease($0))) }),
-            ("bounce", stride(from: 0.0, through: 1.0, by: 0.125).map { StatusIcon.image(.init(lift: StatusIcon.bounce($0))) }),
-            ("pulse", stride(from: 0.0, through: 0.9, by: 0.1125).map { StatusIcon.image(.init(detail: StatusIcon.pulse($0))) }),
-        ]
-        for (name, frames) in strips {
-            let size = NSSize(width: CGFloat(frames.count) * 28, height: 28)
-            let strip = NSImage(size: size, flipped: false) { _ in
-                NSColor(white: 0.17, alpha: 1).setFill()
-                NSRect(origin: .zero, size: size).fill()
-                for (i, frame) in frames.enumerated() {
-                    let white = NSImage(size: frame.size, flipped: false) { rect in
-                        frame.draw(in: rect)
-                        NSColor.white.set()
-                        rect.fill(using: .sourceAtop)
-                        return true
-                    }
-                    white.draw(in: NSRect(x: CGFloat(i) * 28 + (28 - frame.size.width) / 2, y: (28 - frame.size.height) / 2,
-                                          width: frame.size.width, height: frame.size.height))
-                }
-                return true
-            }
-            var rect = NSRect(origin: .zero, size: size)
-            if let cg = strip.cgImage(forProposedRect: &rect, context: nil, hints: [.ctm: AffineTransform(scale: 2)]) {
-                write(cg, to: folder.appendingPathComponent("statusicon-\(name).png"))
-            }
+    /// `Screenshooter --render-status-icon DIR` draws the menu bar icon on one small sheet, in pixels: as a Retina screen
+    /// and as a plain one show it, on a dark and a light menu bar (to the right), and magnified pixel by pixel with its
+    /// canvas outlined (to the left), to see the margins and that the lines sit on whole pixels. Nothing is shown on
+    /// screen.
+    static func renderStatusIcon(into folder: URL) {
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let canvas = StatusIcon.canvas, icon = StatusIcon.image()
+        let dark = CGColor(gray: 0.17, alpha: 1), light = CGColor(gray: 0.93, alpha: 1)
+
+        /// The icon as the pixels of a screen of `scale` pixels to the point, in `color` (a template image takes the
+        /// colour of the menu bar it stands on).
+        func pixels(_ scale: Int, _ color: NSColor) -> CGImage? {
+            guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(canvas.width) * scale,
+                                             pixelsHigh: Int(canvas.height) * scale, bitsPerSample: 8, samplesPerPixel: 4,
+                                             hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                             bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+            // Points per pixel first: the context takes its scale from the representation.
+            rep.size = canvas
+            guard let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+            let saved = NSGraphicsContext.current
+            NSGraphicsContext.current = context
+            let rect = NSRect(origin: .zero, size: canvas)
+            icon.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            NSGraphicsContext.current = saved
+            return rep.cgImage
         }
+
+        // Magnified 12 times per point: 6 times a Retina pixel, 12 times a plain one.
+        let pad: CGFloat = 16, pane = canvas.width * 12
+        let bars = canvas.width * 2 + 2 * pad
+        let width = Int(pad + pane + pad + pane + pad + bars + pad), height = Int(pad + pane + pad)
+        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+        ctx.interpolationQuality = .none
+        ctx.setFillColor(CGColor(gray: 0.5, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+
+        /// A dark pane with the white icon magnified, its canvas outlined.
+        func magnified(_ scale: Int, at x: CGFloat) {
+            let rect = CGRect(x: x, y: pad, width: pane, height: pane)
+            ctx.setFillColor(dark)
+            ctx.fill(rect)
+            if let image = pixels(scale, .white) { ctx.draw(image, in: rect) }
+            ctx.setStrokeColor(CGColor(red: 1, green: 0.35, blue: 0.35, alpha: 1))
+            ctx.setLineWidth(1)
+            ctx.stroke(rect.insetBy(dx: 0.5, dy: 0.5))
+        }
+        magnified(2, at: pad)
+        magnified(1, at: pad + pane + pad)
+
+        /// A menu bar of `scale` pixels to the point (24 pt high) with the icon in it, a margin from the left.
+        func bar(_ scale: Int, _ color: CGColor, ink: NSColor, at y: CGFloat) {
+            let barWidth = canvas.width * CGFloat(scale) + 2 * pad
+            let x = pad + pane + pad + pane + pad
+            let rect = CGRect(x: x, y: y, width: barWidth, height: 24 * CGFloat(scale))
+            ctx.setFillColor(color)
+            ctx.fill(rect)
+            guard let image = pixels(scale, ink) else { return }
+            let size = CGSize(width: canvas.width * CGFloat(scale), height: canvas.height * CGFloat(scale))
+            ctx.draw(image, in: CGRect(x: x + pad, y: y + (rect.height - size.height) / 2, width: size.width, height: size.height))
+        }
+        let top = pad + pane - 48
+        bar(2, dark, ink: .white, at: top)
+        bar(2, light, ink: .black, at: top - 48 - 12)
+        bar(1, dark, ink: .white, at: top - 2 * (48 + 12))
+        bar(1, light, ink: .black, at: top - 2 * (48 + 12) - 24 - 12)
+        write(ctx.makeImage(), to: folder.appendingPathComponent("statusicon.png"))
     }
 
     /// The settings tabs and the welcome window, kept behind all other windows while they are drawn.
     static func renderWindows(into folder: URL) {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         Prefs.registerDefaults()
-        for tab in [SettingsTab.general, .capture, .island, .shortcuts, .permissions] {
+        for tab in [SettingsTab.general, .capture, .island, .pictures, .shortcuts, .permissions] {
             SettingsWindow.show(tab)
             snapshotFrontWindow(titled: L("Настройки Screenshooter"), to: folder.appendingPathComponent("settings-\(tab.rawValue).png"))
         }

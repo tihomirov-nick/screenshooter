@@ -1,150 +1,46 @@
 import AppKit
-import QuartzCore
 
-/// The menu bar icon: the app's mark as a template image. It stands level with FaceID's icon next to it: the same kind
-/// of status item (`variableLength`, as wide as the 15 pt image plus the menu bar's own margins) and a glyph as big as
-/// FaceID's, 14.5 pt across on a Retina screen, with its top where FaceID's is. The island draws the same mark with the
-/// same code (`MarkGlyph`), and scripts/make_icon.swift draws it large on the app icon with a copy of it.
+/// The menu bar icon: the app's mark as a template image, as big as the menu bar's items allow. The status item is
+/// `variableLength`, as wide as the image plus the menu bar's own margins, and the image is the height of the items
+/// there (22 pt, `NSStatusBar.system.thickness`): the mark is 20 pt across on a 22 pt canvas, a point of room on each
+/// side, like the marks of the other apps of the family. The island draws the same mark with the same code
+/// (`markOutline`), and scripts/make_icon.swift draws it large on the app icon with a copy of it.
 ///
 /// The mark is a selection: a frame of strokes with rounded corners, the kind a screenshot tool draws round what it is
 /// about to capture, and a plus in place of its bottom right corner, the crosshair that draws it. Its proportions are
-/// the user's sample's. It moves only at moments that matter and for well under a second: when a capture is taken the
-/// frame's strokes run once round it, like the marching ants of a selection, coming out of the plus and going back into
-/// it; when something lands on the shelf the icon bounces lightly; while a capture is in progress the frame pulses
-/// softly. Frames are drawn only while it moves; with Reduce Motion it never does.
+/// the user's sample's. The icon never moves: a capture, something landing on the shelf, a capture in progress change
+/// nothing in it (only Tomato and Coal move in the menu bar).
 @MainActor
-final class StatusIcon {
-    static let shared = StatusIcon()
+enum StatusIcon {
+    /// The canvas: as high as the menu bar's items and as wide as the mark and its margin ask, the glyph square.
+    nonisolated static let canvas = NSSize(width: 22, height: 22)
+    /// The glyph's line, the same part of its side as before the icon grew (1.18 pt on 14.5): a little under a tenth of
+    /// the frame's side, the sample's being a tenth. It is drawn as 3 whole pixels on a Retina screen and 2 on a plain
+    /// one.
+    nonisolated static let lineWidth: CGFloat = 1.63
+    /// The square the glyph fills: 40 pixels on a Retina screen.
+    nonisolated static let side: CGFloat = 20
+    /// The glyph's top on the canvas, the same room above it as below.
+    nonisolated static let top: CGFloat = 1
 
-    /// The canvas: 15 pt across, the width of the menu bar icons of all four apps of the family, so the gaps between
-    /// them are the same; higher than the glyph, with room above it for the bounce.
-    nonisolated static let canvas = NSSize(width: 15, height: 18)
-    /// The glyph's line, a little over a tenth of the frame's side as on the sample, and as thick as the corners of
-    /// FaceID's glyph.
-    nonisolated static let lineWidth: CGFloat = 1.18
-    /// The square the glyph fills: 29 pixels on a Retina screen, as FaceID's glyph.
-    nonisolated static let side: CGFloat = 14.5
-    /// The glyph's top on the canvas, level with the top of FaceID's glyph.
-    nonisolated static let top: CGFloat = 2
-
-    /// One frame of the icon; `Frame()` is the icon at rest.
-    struct Frame {
-        /// How far the frame's strokes have run round it when a capture is taken, 0...1.
-        var shot: CGFloat = 0
-        /// How high the icon is lifted, in points.
-        var lift: CGFloat = 0
-        /// The opacity of the frame; the plus stays solid.
-        var detail: CGFloat = 1
+    /// Puts the icon on the status item's button.
+    static func attach(to button: NSStatusBarButton) {
+        button.image = image()
     }
 
-    enum Motion {
-        /// A capture is taken.
-        case shot
-        /// Something has landed on the shelf: the icon hops and lands.
-        case bounce
-
-        var duration: CFTimeInterval {
-            switch self {
-            case .shot: return 0.6
-            case .bounce: return 0.55
-            }
-        }
-    }
-
-    private weak var button: NSStatusBarButton?
-    private var timer: Timer?
-    private var motion: (kind: Motion, start: CFTimeInterval)?
-    private var pulseStart: CFTimeInterval?
-
-    private init() {}
-
-    func attach(to button: NSStatusBarButton) {
-        self.button = button
-        button.image = Self.image()
-    }
-
-    func play(_ kind: Motion) {
-        guard !Self.reduceMotion else { return }
-        motion = (kind, CACurrentMediaTime())
-        run()
-    }
-
-    /// The frame pulses while a capture is in progress.
-    var capturing = false {
-        didSet {
-            guard capturing != oldValue else { return }
-            pulseStart = capturing && !Self.reduceMotion ? CACurrentMediaTime() : nil
-            if pulseStart != nil { run() } else { tick() }
-        }
-    }
-
-    private static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
-
-    private func run() {
-        guard timer == nil else { return }
-        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
-        tick()
-    }
-
-    private func tick() {
-        let now = CACurrentMediaTime()
-        var frame = Frame()
-        if let pulseStart {
-            frame.detail = Self.pulse(now - pulseStart)
-        }
-        if let motion {
-            let t = (now - motion.start) / motion.kind.duration
-            if t >= 1 {
-                self.motion = nil
-            } else {
-                switch motion.kind {
-                case .shot: frame.shot = Self.ease(t)
-                case .bounce: frame.lift = Self.bounce(t)
-                }
-            }
-        }
-        button?.image = Self.image(frame)
-        if motion == nil, pulseStart == nil {
-            timer?.invalidate()
-            timer = nil
-        }
-    }
-
-    /// Slow at both ends, so a motion starts and stops on the icon at rest.
-    static func ease(_ t: Double) -> CGFloat {
-        CGFloat(t * t * (3 - 2 * t))
-    }
-
-    /// How opaque the frame is while a capture is in progress: down to under half and back, every 0.9 s.
-    static func pulse(_ seconds: Double) -> CGFloat {
-        1 - 0.275 * (1 - cos(2 * .pi * seconds / 0.9))
-    }
-
-    /// How high the icon is over the bounce: a hop and a small second one, within the canvas.
-    static func bounce(_ t: Double) -> CGFloat {
-        if t < 0.6 { return 1.0 * sin(.pi * t / 0.6) }
-        if t < 0.9 { return 0.3 * sin(.pi * (t - 0.6) / 0.3) }
-        return 0
-    }
-
-    /// The icon for `frame` as a template image, in black as template images want it: the square on whole pixels as
-    /// near the middle of the canvas as they allow, the frame at the frame's opacity, the plus solid.
-    static func image(_ frame: Frame = Frame()) -> NSImage {
+    /// The icon as a template image, in black as template images want it: the square on whole pixels as near the middle
+    /// of the canvas as they allow. It is drawn once for each pixel density, so the lines can keep to whole pixels at 1x
+    /// and at 2x.
+    nonisolated static func image() -> NSImage {
         let image = NSImage(size: canvas, flipped: true) { _ in
             guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
-            // Drawn once for each pixel density, so the lines can keep to whole pixels at 1x and at 2x.
             let scale = max(1, abs(ctx.userSpaceToDeviceSpaceTransform.a))
-            let mark = selectionPaths(side: side, lineWidth: lineWidth, scale: scale, shot: frame.shot)
-            ctx.translateBy(x: ((canvas.width - side) / 2 * scale).rounded() / scale, y: top - frame.lift)
-            ctx.setFillColor(CGColor(gray: 0, alpha: frame.detail))
-            ctx.addPath(mark.frame)
-            ctx.fillPath()
+            // The line covers whole pixels, as many as its width rounds to: the layout counts on it (see
+            // `selectionLayout`), and a line a fraction of a pixel wider would blur at its edges.
+            let line = max(1, (lineWidth * scale).rounded()) / scale
+            ctx.translateBy(x: ((canvas.width - side) / 2 * scale).rounded() / scale, y: top)
             ctx.setFillColor(CGColor(gray: 0, alpha: 1))
-            ctx.addPath(mark.plus)
+            ctx.addPath(markOutline(side: side, lineWidth: line, scale: scale))
             ctx.fillPath()
             return true
         }
@@ -237,10 +133,8 @@ final class StatusIcon {
     }
 
     /// The selection in a square of `side` points with y growing down, as filled shapes: the frame's strokes and the
-    /// plus, `lineWidth` thick with straight ends. `scale` keeps them on whole pixels (see `selectionLayout`). `shot`
-    /// runs the frame's strokes clockwise along it by that part of the way from one corner to the next: out of the
-    /// plus's horizontal bar, round the frame and into its vertical bar. At 0 and at 1 they are where they rest.
-    nonisolated static func selectionPaths(side: CGFloat, lineWidth: CGFloat, scale: CGFloat? = nil, shot: CGFloat = 0)
+    /// plus, `lineWidth` thick with straight ends. `scale` keeps them on whole pixels (see `selectionLayout`).
+    nonisolated static func selectionPaths(side: CGFloat, lineWidth: CGFloat, scale: CGFloat? = nil)
         -> (frame: CGPath, plus: CGPath) {
         let l = selectionLayout(side: side, lineWidth: lineWidth, scale: scale)
         let r = l.radius, inner = l.mirrored(l.armEnd)
@@ -252,14 +146,12 @@ final class StatusIcon {
         line.addArc(tangent1End: CGPoint(x: l.near, y: l.near), tangent2End: CGPoint(x: l.far, y: l.near), radius: r)
         line.addArc(tangent1End: CGPoint(x: l.far, y: l.near), tangent2End: CGPoint(x: l.far, y: l.far), radius: r)
         line.addLine(to: CGPoint(x: l.far, y: inner))
-        // Along it one side's pattern over and over: a dash, a gap, a corner (both its arms and the bend), a gap. At
-        // rest the line starts with a gap.
+        // Along it one side's pattern over and over: a dash, a gap, a corner (both its arms and the bend), a gap. The
+        // line starts with a gap.
         let gap = l.dashStart - l.armEnd, dash = l.mirrored(l.dashStart) - l.dashStart
         let corner = 2 * (l.armEnd - l.near - r) + .pi / 2 * r
         let period = dash + corner + 2 * gap
-        var phase = (period - gap - shot * period).truncatingRemainder(dividingBy: period)
-        if phase < 0 { phase += period }
-        let frame = line.copy(dashingWithPhase: phase, lengths: [dash, gap, corner, gap])
+        let frame = line.copy(dashingWithPhase: period - gap, lengths: [dash, gap, corner, gap])
             .copy(strokingWithWidth: lineWidth, lineCap: .butt, lineJoin: .miter, miterLimit: 10)
         let plus = CGMutablePath()
         plus.addRect(CGRect(x: inner, y: l.far - lineWidth / 2, width: l.plusEnd - inner, height: lineWidth))
