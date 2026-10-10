@@ -80,10 +80,10 @@ extension PreviewRenderer {
         update: { _ in })
 
     static let sampleUpdate = Updater.Release(
-        version: "1.2.4", title: "Screenshooter 1.2.4",
+        version: "1.2.5", title: "Screenshooter 1.2.5",
         notes: "## Что нового\n- Островок раскрывается из центра выреза\n- Новый знак на полке и в строке меню",
-        page: URL(string: "https://github.com/tihomirov-nick/screenshooter/releases/tag/v1.2.4")!,
-        dmg: URL(string: "https://example.com/Screenshooter-1.2.4.dmg")!, size: 4_200_000)
+        page: URL(string: "https://github.com/tihomirov-nick/screenshooter/releases/tag/v1.2.5")!,
+        dmg: URL(string: "https://example.com/Screenshooter-1.2.5.dmg")!, size: 4_200_000)
 
     private static func islandSamples() -> [IslandSample] {
         let s = SampleShelf()

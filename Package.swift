@@ -44,6 +44,11 @@ let package = Package(
             path: "Sources/ShotProbe"
         ),
         .testTarget(
+            name: "ShotCoreTests",
+            dependencies: ["ShotCore"],
+            path: "Tests/ShotCoreTests"
+        ),
+        .testTarget(
             name: "ScreenSegmenterTests",
             dependencies: ["ScreenSegmenter"],
             path: "Tests/ScreenSegmenterTests"
