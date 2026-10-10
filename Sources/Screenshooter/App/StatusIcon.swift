@@ -1,9 +1,9 @@
 import AppKit
 
-/// The menu bar icon: the app's mark as a template image, as big as the menu bar's items allow. The status item is
-/// `variableLength`, as wide as the image plus the menu bar's own margins, and the image is the height of the items
-/// there (22 pt, `NSStatusBar.system.thickness`): the mark is 20 pt across on a 22 pt canvas, a point of room on each
-/// side, like the marks of the other apps of the family. The island draws the same mark with the same code
+/// The menu bar icon: the app's mark as a template image, as big as the menu bar's own icons (Wi-Fi, Control Center).
+/// The status item is `variableLength`, as wide as the image plus the menu bar's own margins, and the image is the
+/// height of the items there (22 pt, `NSStatusBar.system.thickness`): the mark is 16 pt across, in the middle of a 22 pt
+/// tall canvas a point wider than the mark on each side, like the marks of the other apps of the family. The island draws the same mark with the same code
 /// (`markOutline`), and scripts/make_icon.swift draws it large on the app icon with a copy of it.
 ///
 /// The mark is a selection: a frame of strokes with rounded corners, the kind a screenshot tool draws round what it is
@@ -13,15 +13,15 @@ import AppKit
 @MainActor
 enum StatusIcon {
     /// The canvas: as high as the menu bar's items and as wide as the mark and its margin ask, the glyph square.
-    nonisolated static let canvas = NSSize(width: 22, height: 22)
-    /// The glyph's line, the same part of its side as before the icon grew (1.18 pt on 14.5): a little under a tenth of
-    /// the frame's side, the sample's being a tenth. It is drawn as 3 whole pixels on a Retina screen and 2 on a plain
-    /// one.
-    nonisolated static let lineWidth: CGFloat = 1.63
-    /// The square the glyph fills: 40 pixels on a Retina screen.
-    nonisolated static let side: CGFloat = 20
+    nonisolated static let canvas = NSSize(width: 18, height: 22)
+    /// The glyph's line, the same part of its side as on the 20 pt icon it had before it was brought to the size of the
+    /// system's (1.63 pt on 20): a little under a tenth of the frame's side, the sample's being a tenth. It is drawn as
+    /// 3 whole pixels on a Retina screen (the nearest to 2.6) and 1 on a plain one.
+    nonisolated static let lineWidth: CGFloat = 1.304
+    /// The square the glyph fills: 16 pt, 32 pixels on a Retina screen.
+    nonisolated static let side: CGFloat = 16
     /// The glyph's top on the canvas, the same room above it as below.
-    nonisolated static let top: CGFloat = 1
+    nonisolated static let top: CGFloat = 3
 
     /// Puts the icon on the status item's button.
     static func attach(to button: NSStatusBarButton) {
